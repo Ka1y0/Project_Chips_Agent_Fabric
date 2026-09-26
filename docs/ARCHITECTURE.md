@@ -173,6 +173,11 @@ state, approve a RED action, or satisfy a definition of done by itself.
   subscription availability, quota, and load. Immutable revisions use a generation-CAS head;
   observations are append-only and `UNKNOWN` remains explicit. See
   [`CAPABILITY_FABRIC.md`](CAPABILITY_FABRIC.md).
+- Collective coordination messages are non-authoritative. Peer GO is advisory only; scoped
+  HOLD/VETO/STOP may narrow execution but cannot grant permission, create a Task, open a lease, or
+  satisfy verification. New work still flows through canonical spawn, authorization, scheduling,
+  lease, and verification boundaries. See
+  [`COLLECTIVE_COORDINATION.md`](COLLECTIVE_COORDINATION.md).
 - Semantic interaction executions accept only a bounded structured execution specification, acquire
   generation-fenced semantic resources, and require a fresh observation after every action before
   recording success. SQLite persists sanitized semantic state rather than screenshots, typed text,
