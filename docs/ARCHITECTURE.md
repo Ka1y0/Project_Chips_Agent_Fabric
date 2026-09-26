@@ -113,6 +113,7 @@ state, approve a RED action, or satisfy a definition of done by itself.
 | Scheduler | Hard constraints, deterministic scoring, explainable routing | Process execution or mutable global state |
 | Hybrid Engine | Explainable bounded workload decomposition and topology | Concrete Worker selection, authority, or dispatch |
 | Cluster DAG expander | Typed roles, dependencies, replicas, spawn-policy bounds, reviewer-independence constraints | Worker scoring, unbounded fanout/recursion, or lease bypass |
+| Collective coordination foundation | Bounded typed peer messages, channels/mailboxes/workstreams, and narrow-only HOLD/VETO/STOP coordination | Canonical Task creation, dispatch authority, permission grants, self-authenticated identity, or unbounded broadcast |
 | Capability fabric | Versioned provider-independent vocabulary, immutable Worker manifests, append-only health/quota/load observations | Provider identity, permission grants, or invented availability/cost |
 | Local-model profiler | Evidence-backed observed properties and conservative recommendations | Credential reads, endpoint probes during discovery, invented capacity, or silent setting changes |
 | Runtime | Dispatch, concurrency, cancellation, result orchestration | Credential acquisition or model-specific parsing |
@@ -172,6 +173,11 @@ state, approve a RED action, or satisfy a definition of done by itself.
   subscription availability, quota, and load. Immutable revisions use a generation-CAS head;
   observations are append-only and `UNKNOWN` remains explicit. See
   [`CAPABILITY_FABRIC.md`](CAPABILITY_FABRIC.md).
+- Collective coordination messages are non-authoritative. Peer GO is advisory only; scoped
+  HOLD/VETO/STOP may narrow execution but cannot grant permission, create a Task, open a lease, or
+  satisfy verification. New work still flows through canonical spawn, authorization, scheduling,
+  lease, and verification boundaries. See
+  [`COLLECTIVE_COORDINATION.md`](COLLECTIVE_COORDINATION.md).
 - Semantic interaction executions accept only a bounded structured execution specification, acquire
   generation-fenced semantic resources, and require a fresh observation after every action before
   recording success. SQLite persists sanitized semantic state rather than screenshots, typed text,

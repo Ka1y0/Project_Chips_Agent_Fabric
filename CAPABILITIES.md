@@ -33,6 +33,7 @@ only a fresh execution-plane observation proves whether it can execute that capa
 | Evidence-backed local-model profiles for LM Studio, Ollama, llama.cpp, and loopback OpenAI-compatible endpoints | IMPLEMENTED FOUNDATION; no automatic mutation | `project_supervisor.local_models` |
 | Hybrid workload topology planning separated from Worker routing | IMPLEMENTED FOUNDATION | `project_supervisor.hybrid_engine` + scheduler |
 | Bounded role-aware cluster DAG expansion under canonical spawn limits | IMPLEMENTED FOUNDATION | `project_supervisor.cluster` + `fabric.execution` |
+| Non-authoritative collective coordination messages and narrow-only peer gate | IMPLEMENTED FOUNDATION; no persistence/API/runtime binding | `project_supervisor.fabric.coordination` |
 | Closed-loop semantic interaction, resource leases, trajectories, skill hints, and UI graph | IMPLEMENTED deterministic offline vertical slice | `InteractionWorkerAdapter` + SQLite + read-only semantic projections |
 | Real OS/browser/accessibility/local-parser/VLM interaction backend | PLANNED; not demonstrated | contract seams only |
 | Fenced node-runtime recovery monitor | IMPLEMENTED control plane; deployment FOUNDATION | SQLite lease/checkpoint + typed adapter schema |
