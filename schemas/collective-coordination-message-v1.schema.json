@@ -1,0 +1,281 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Collective coordination message v1 (complete wire envelope)",
+  "description": "Structural validation only. The Python decoder additionally enforces UTF-8 byte, payload depth/node, finite-number, timestamp ordering and canonical-digest checks. Neither this schema nor a matching digest authenticates the claimed sender.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "messageID",
+    "projectID",
+    "senderWorkerID",
+    "kind",
+    "payload",
+    "goalID",
+    "taskID",
+    "channel",
+    "targetWorkerID",
+    "threadID",
+    "workstreamID",
+    "resourceID",
+    "inReplyTo",
+    "supersedesMessageID",
+    "sourceRunID",
+    "priority",
+    "createdAt",
+    "expiresAt",
+    "digest"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "collective-coordination-message/v1"
+    },
+    "messageID": {
+      "$ref": "#/$defs/identifier"
+    },
+    "projectID": {
+      "$ref": "#/$defs/identifier"
+    },
+    "senderWorkerID": {
+      "$ref": "#/$defs/identifier"
+    },
+    "kind": {
+      "enum": [
+        "info",
+        "question",
+        "request",
+        "offer",
+        "result",
+        "claim",
+        "assign",
+        "ack",
+        "hold",
+        "veto",
+        "stop",
+        "release",
+        "go"
+      ]
+    },
+    "payload": {
+      "$ref": "#/$defs/object"
+    },
+    "goalID": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/identifier"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "taskID": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/identifier"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "channel": {
+      "$ref": "#/$defs/identifier"
+    },
+    "targetWorkerID": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/identifier"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "threadID": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/identifier"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "workstreamID": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/identifier"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "resourceID": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/identifier"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "inReplyTo": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/identifier"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "supersedesMessageID": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/identifier"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "sourceRunID": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/identifier"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9
+    },
+    "createdAt": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "expiresAt": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/timestamp"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "hold",
+              "veto",
+              "stop",
+              "release",
+              "go"
+            ]
+          }
+        }
+      },
+      "then": {
+        "anyOf": [
+          {
+            "properties": {
+              "workstreamID": {
+                "$ref": "#/$defs/identifier"
+              }
+            }
+          },
+          {
+            "properties": {
+              "resourceID": {
+                "$ref": "#/$defs/identifier"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "release"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "supersedesMessageID": {
+            "$ref": "#/$defs/identifier"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": "\\S"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "maxLength": 32,
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,6})?(?:Z|[+-]\\d{2}:\\d{2})$",
+      "not": {
+        "pattern": "-00:00$"
+      }
+    },
+    "object": {
+      "type": "object",
+      "maxProperties": 2048,
+      "propertyNames": {
+        "$ref": "#/$defs/identifier"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/value"
+      }
+    },
+    "value": {
+      "anyOf": [
+        {
+          "type": [
+            "null",
+            "boolean",
+            "number"
+          ]
+        },
+        {
+          "type": "string",
+          "maxLength": 16384
+        },
+        {
+          "type": "array",
+          "maxItems": 2048,
+          "items": {
+            "$ref": "#/$defs/value"
+          }
+        },
+        {
+          "$ref": "#/$defs/object"
+        }
+      ]
+    }
+  }
+}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -15,6 +16,9 @@ type JSONValue = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
 COLLECTIVE_MESSAGE_VERSION = "collective-coordination-message/v1"
 COLLECTIVE_GATE_VERSION = "collective-coordination-gate/v1"
 MAX_COORDINATION_PAYLOAD_BYTES = 16_384
+MAX_COORDINATION_PAYLOAD_DEPTH = 16
+MAX_COORDINATION_PAYLOAD_NODES = 2_048
+MAX_COORDINATION_BATCH_MESSAGES = 1_024
 
 
 class CoordinationValidationError(ValueError):
@@ -48,23 +52,71 @@ def _require_identifier(value: str, field_name: str, *, maximum: int = 256) -> s
         raise CoordinationValidationError(f"{field_name} must be a non-empty string")
     if len(value) > maximum:
         raise CoordinationValidationError(f"{field_name} exceeds its length limit")
+    try:
+        value.encode("utf-8")
+    except UnicodeError as error:
+        raise CoordinationValidationError(f"{field_name} must be valid UTF-8 text") from error
     return value
 
 
 def _normalize_json(value: Any) -> JSONValue:
-    try:
-        encoded = json.dumps(
-            value,
-            allow_nan=False,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-        return json.loads(encoded)
-    except (TypeError, ValueError) as error:
-        raise CoordinationValidationError(
-            "coordination payload must be finite canonical JSON"
-        ) from error
+    """Validate before serializing; never coerce keys or materialize an unbounded payload."""
+    nodes = 0
+    size = 0
+    ancestors: set[int] = set()
+
+    def account(amount: int) -> None:
+        nonlocal size
+        size += amount
+        if size > MAX_COORDINATION_PAYLOAD_BYTES:
+            raise CoordinationValidationError("coordination payload exceeds its size limit")
+
+    def scalar(item: JSONScalar) -> JSONScalar:
+        if isinstance(item, str) and len(item) > MAX_COORDINATION_PAYLOAD_BYTES:
+            raise CoordinationValidationError("coordination payload exceeds its size limit")
+        if isinstance(item, float) and not math.isfinite(item):
+            raise CoordinationValidationError("coordination payload must be finite JSON")
+        try:
+            encoded = _canonical_json_bytes(item)
+        except (TypeError, ValueError, OverflowError) as error:
+            raise CoordinationValidationError(
+                "coordination payload contains invalid JSON"
+            ) from error
+        account(len(encoded))
+        return item
+
+    def visit(item: Any, depth: int) -> JSONValue:
+        nonlocal nodes
+        nodes += 1
+        if nodes > MAX_COORDINATION_PAYLOAD_NODES:
+            raise CoordinationValidationError("coordination payload exceeds its node limit")
+        if depth > MAX_COORDINATION_PAYLOAD_DEPTH:
+            raise CoordinationValidationError("coordination payload exceeds its depth limit")
+        if item is None or isinstance(item, (str, bool, int, float)):
+            return scalar(item)
+        if not isinstance(item, (Mapping, list, tuple)):
+            raise CoordinationValidationError("coordination payload must contain only JSON values")
+        if len(item) > MAX_COORDINATION_PAYLOAD_NODES:
+            raise CoordinationValidationError("coordination payload exceeds its node limit")
+        identity = id(item)
+        if identity in ancestors:
+            raise CoordinationValidationError("coordination payload must not contain cycles")
+        ancestors.add(identity)
+        try:
+            account(2 + max(0, len(item) - 1))  # braces/brackets and commas
+            if isinstance(item, Mapping):
+                result: dict[str, JSONValue] = {}
+                for key, child in item.items():
+                    _require_identifier(key, "payload key")
+                    scalar(key)
+                    account(1)  # colon
+                    result[key] = visit(child, depth + 1)
+                return result
+            return [visit(child, depth + 1) for child in item]
+        finally:
+            ancestors.remove(identity)
+
+    return visit(value, 0)
 
 
 def _freeze_json(value: JSONValue) -> Any:
@@ -98,9 +150,16 @@ def _timestamp(value: datetime) -> str:
 
 
 def _normalize_time(value: datetime, field_name: str) -> datetime:
-    if value.tzinfo is None or value.utcoffset() is None:
-        raise CoordinationValidationError(f"{field_name} must be timezone-aware")
-    return value.astimezone(UTC)
+    if not isinstance(value, datetime):
+        raise CoordinationValidationError(f"{field_name} must be a timezone-aware datetime")
+    try:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("missing timezone")
+        return value.astimezone(UTC)
+    except (TypeError, ValueError, OverflowError) as error:
+        raise CoordinationValidationError(
+            f"{field_name} must be a valid timezone-aware datetime"
+        ) from error
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +241,9 @@ class CollectiveMessage:
         if kind is CoordinationKind.RELEASE and self.supersedes_message_id is None:
             raise CoordinationValidationError("release must reference the hold it supersedes")
 
-        normalized_payload = _normalize_json(dict(self.payload))
+        if not isinstance(self.payload, Mapping):
+            raise CoordinationValidationError("coordination payload must be a JSON object")
+        normalized_payload = _normalize_json(self.payload)
         if not isinstance(normalized_payload, dict):
             raise CoordinationValidationError("coordination payload must be a JSON object")
         if any(not key.strip() or len(key) > 256 for key in normalized_payload):
@@ -214,7 +275,7 @@ class CollectiveMessage:
         return CoordinationEffect.ADVISORY
 
     def is_expired(self, now: datetime | None = None) -> bool:
-        observed = _normalize_time(now or datetime.now(UTC), "now")
+        observed = _normalize_time(datetime.now(UTC) if now is None else now, "now")
         return self.expires_at is not None and observed >= self.expires_at
 
     def to_protocol(self, *, include_digest: bool = True) -> dict[str, Any]:
@@ -307,14 +368,33 @@ class CoordinationGate:
         ):
             if value is not None:
                 _require_identifier(value, name)
-        observed = _normalize_time(now or datetime.now(UTC), "now")
+        observed = _normalize_time(datetime.now(UTC) if now is None else now, "now")
 
-        candidates = [
+        # Validate immutable IDs before time/scope filtering. Otherwise an expired or
+        # differently scoped copy can hide a conflicting definition of the same message.
+        by_id: dict[str, CollectiveMessage] = {}
+        try:
+            iterator = iter(messages)
+        except TypeError as error:
+            raise CoordinationValidationError("coordination batch must be iterable") from error
+        for index, message in enumerate(iterator):
+            if index >= MAX_COORDINATION_BATCH_MESSAGES:
+                raise CoordinationValidationError("coordination batch exceeds its message limit")
+            if not isinstance(message, CollectiveMessage):
+                raise CoordinationValidationError("coordination batch contains a non-message value")
+            if message.project_id != project_id:
+                continue
+            existing = by_id.get(message.message_id)
+            if existing is not None and existing.digest != message.digest:
+                raise CoordinationValidationError(
+                    "coordination message ID replay conflicts with immutable definition"
+                )
+            by_id[message.message_id] = message
+
+        relevant = [
             message
-            for message in messages
-            if message.project_id == project_id
-            and not message.is_expired(observed)
-            and CoordinationGate._matches_scope(
+            for message in by_id.values()
+            if CoordinationGate._matches_scope(
                 message,
                 goal_id=goal_id,
                 task_id=task_id,
@@ -323,43 +403,29 @@ class CoordinationGate:
                 resource_id=resource_id,
             )
         ]
-        candidates.sort(key=lambda message: (message.created_at, message.message_id))
+        relevant.sort(key=lambda message: (message.created_at, message.message_id))
+        if any(message.created_at > observed for message in relevant):
+            raise CoordinationValidationError("coordination snapshot contains a future message")
 
-        by_id: dict[str, CollectiveMessage] = {}
-        relevant: list[CollectiveMessage] = []
-        for message in candidates:
-            existing = by_id.get(message.message_id)
-            if existing is not None:
-                if existing.digest != message.digest:
-                    raise CoordinationValidationError(
-                        "coordination message ID replay conflicts with immutable definition"
-                    )
-                continue
-            by_id[message.message_id] = message
-            relevant.append(message)
         released_holds: set[str] = set()
         advisory: list[str] = []
-
         for message in relevant:
             if message.kind is CoordinationKind.RELEASE:
                 prior = by_id.get(message.supersedes_message_id or "")
-                if (
-                    prior is not None
-                    and prior.kind is CoordinationKind.HOLD
-                    and prior.sender_worker_id == message.sender_worker_id
-                    and prior.created_at <= message.created_at
-                ):
+                if prior is not None and CoordinationGate._releases(prior, message):
                     released_holds.add(prior.message_id)
-                advisory.append(message.message_id)
-            elif message.effect is CoordinationEffect.ADVISORY:
+            if not message.is_expired(observed) and message.effect is CoordinationEffect.ADVISORY:
                 advisory.append(message.message_id)
 
-        active: list[CollectiveMessage] = []
-        for message in relevant:
-            if message.kind is CoordinationKind.HOLD and message.message_id in released_holds:
-                continue
-            if message.effect is not CoordinationEffect.ADVISORY:
-                active.append(message)
+        # RELEASE is an event, not a renewable permit. Its announcement may expire, but
+        # forgetting it would resurrect the old HOLD. Callers must retain complete history.
+        active = [
+            message
+            for message in relevant
+            if not message.is_expired(observed)
+            and message.effect is not CoordinationEffect.ADVISORY
+            and message.message_id not in released_holds
+        ]
 
         reason_codes: list[str] = []
         if any(message.kind is CoordinationKind.STOP for message in active):
@@ -377,6 +443,26 @@ class CoordinationGate:
             reason_codes=tuple(reason_codes),
             active_control_message_ids=tuple(message.message_id for message in active),
             advisory_message_ids=tuple(advisory),
+        )
+
+    @staticmethod
+    def _releases(hold: CollectiveMessage, release: CollectiveMessage) -> bool:
+        if hold.kind is not CoordinationKind.HOLD or hold.created_at >= release.created_at:
+            return False
+        # A thread/reply is conversational context. It is not an execution scope.
+        return all(
+            getattr(hold, name) == getattr(release, name)
+            for name in (
+                "project_id",
+                "sender_worker_id",
+                "source_run_id",
+                "channel",
+                "goal_id",
+                "task_id",
+                "target_worker_id",
+                "workstream_id",
+                "resource_id",
+            )
         )
 
     @staticmethod
