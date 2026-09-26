@@ -113,6 +113,7 @@ state, approve a RED action, or satisfy a definition of done by itself.
 | Scheduler | Hard constraints, deterministic scoring, explainable routing | Process execution or mutable global state |
 | Hybrid Engine | Explainable bounded workload decomposition and topology | Concrete Worker selection, authority, or dispatch |
 | Cluster DAG expander | Typed roles, dependencies, replicas, spawn-policy bounds, reviewer-independence constraints | Worker scoring, unbounded fanout/recursion, or lease bypass |
+| Collective coordination foundation | Bounded typed peer messages, channels/mailboxes/workstreams, and narrow-only HOLD/VETO/STOP coordination | Canonical Task creation, dispatch authority, permission grants, self-authenticated identity, or unbounded broadcast |
 | Capability fabric | Versioned provider-independent vocabulary, immutable Worker manifests, append-only health/quota/load observations | Provider identity, permission grants, or invented availability/cost |
 | Local-model profiler | Evidence-backed observed properties and conservative recommendations | Credential reads, endpoint probes during discovery, invented capacity, or silent setting changes |
 | Runtime | Dispatch, concurrency, cancellation, result orchestration | Credential acquisition or model-specific parsing |
