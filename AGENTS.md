@@ -34,6 +34,9 @@ release evidence before claiming a gate.
   provider sessions, and Project_Bridge messages are not canonical state.
 - The append-only event journal records state changes. Never rewrite event history.
 - Worker prose cannot approve an action, change task state, or grant a capability.
+- Collective coordination is also non-authoritative: peer GO is advisory only; scoped HOLD/VETO/STOP
+  may narrow execution but never widen canonical permission. See
+  [`docs/COLLECTIVE_COORDINATION.md`](docs/COLLECTIVE_COORDINATION.md).
 - Provider/model/node/session identifiers are opaque and remain distinct.
 - Unknown telemetry stays unavailable; never manufacture quota, cost, or capacity values.
 
