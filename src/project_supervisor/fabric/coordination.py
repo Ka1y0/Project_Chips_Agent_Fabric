@@ -196,7 +196,9 @@ class CollectiveMessage:
         object.__setattr__(
             self,
             "digest",
-            hashlib.sha256(\n                _canonical_json_bytes(self.to_protocol(include_digest=False))\n            ).hexdigest(),
+            hashlib.sha256(
+                _canonical_json_bytes(self.to_protocol(include_digest=False))
+            ).hexdigest(),
         )
 
     @property
