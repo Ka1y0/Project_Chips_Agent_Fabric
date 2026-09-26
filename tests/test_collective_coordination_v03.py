@@ -189,3 +189,22 @@ def test_assign_and_result_are_advisory_only() -> None:
     assert decision.advisory_message_ids == ("assign", "result")
     assert assign.canonical_authority is False
     assert result.canonical_authority is False
+
+def test_exact_message_replay_is_deduplicated_but_conflict_fails_closed() -> None:
+    first = _message("same-id", CoordinationKind.INFO, payload={"value": 1})
+    exact = _message("same-id", CoordinationKind.INFO, payload={"value": 1})
+    decision = CoordinationGate.evaluate(
+        [first, exact],
+        project_id="project-fabric",
+        now=NOW,
+    )
+    assert decision.advisory_message_ids == ("same-id",)
+
+    conflict = _message("same-id", CoordinationKind.INFO, payload={"value": 2})
+    with pytest.raises(CoordinationValidationError, match="replay conflicts"):
+        CoordinationGate.evaluate(
+            [first, conflict],
+            project_id="project-fabric",
+            now=NOW,
+        )
+
