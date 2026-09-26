@@ -307,7 +307,7 @@ class CoordinationGate:
                 _require_identifier(value, name)
         observed = _normalize_time(now or datetime.now(UTC), "now")
 
-        relevant = [
+        candidates = [
             message
             for message in messages
             if message.project_id == project_id
@@ -321,9 +321,20 @@ class CoordinationGate:
                 resource_id=resource_id,
             )
         ]
-        relevant.sort(key=lambda message: (message.created_at, message.message_id))
+        candidates.sort(key=lambda message: (message.created_at, message.message_id))
 
-        by_id = {message.message_id: message for message in relevant}
+        by_id: dict[str, CollectiveMessage] = {}
+        relevant: list[CollectiveMessage] = []
+        for message in candidates:
+            existing = by_id.get(message.message_id)
+            if existing is not None:
+                if existing.digest != message.digest:
+                    raise CoordinationValidationError(
+                        "coordination message ID replay conflicts with immutable definition"
+                    )
+                continue
+            by_id[message.message_id] = message
+            relevant.append(message)
         released_holds: set[str] = set()
         advisory: list[str] = []
 
