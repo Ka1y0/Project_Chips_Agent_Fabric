@@ -58,6 +58,20 @@ leases, locality, quotas, latency, quality, cost, reliability, and stable tie-br
 **PLANNED INTEGRATION:** connect stages to durable DAG tasks, leases, cancellation fences, quotas, and
 node-locality policy. Scale by adding Workers, not by allowing unbounded recursive spawning.
 
+## 4.5 Collective coordination
+
+**IMPLEMENTED FOUNDATION:** Workers now have a provider-independent typed coordination contract for
+board/channel/mailbox-style messages, workstream and resource scoping, targeted replies, bounded
+payloads, and deterministic peer coordination gates. Ordinary INFO/QUESTION/REQUEST/OFFER/RESULT/
+CLAIM/ASSIGN/ACK messages are advisory. GO is also advisory. Scoped HOLD may pause; VETO/STOP may
+block; RELEASE can clear only the exact earlier HOLD from the same sender. None of these messages can
+create canonical Tasks, grant authorization, open leases, or satisfy verification.
+
+**PLANNED INTEGRATION:** persist messages append-only with canonical Worker-run provenance, expose
+read-only channel/mailbox projections, and convert coordination requests into existing bounded
+ChildWorkProposal flows. Sender authentication and optional signatures may prove origin/integrity but
+must never manufacture authority. See [`COLLECTIVE_COORDINATION.md`](COLLECTIVE_COORDINATION.md).
+
 ## 5. Bridge information sharing
 
 **IMPLEMENTED FOUNDATION:** Bridge remains optional, non-authoritative, bounded, hashed, and
