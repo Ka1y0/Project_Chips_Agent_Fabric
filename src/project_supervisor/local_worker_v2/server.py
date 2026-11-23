@@ -524,11 +524,9 @@ class LocalWorkerV2Service:
             "PROCESS_START_RECEIPT_UNAVAILABLE",
         )
 
-    async def reconcile(self, record: LaunchRecord) -> LaunchRecord:
-        record, profile = await self._validate_record_profile(record)
-        if profile is None or record.job_id is None or record.launch_nonce is None:
-            return record
-        job_dir = self._job_dir(record.job_id)
+    async def _terminal_record(
+        self, record: LaunchRecord, profile: DriverProfile, job_dir: Path
+    ) -> LaunchRecord | None:
         terminal = read_json_receipt(job_dir / "terminal.json")
         if terminal is not None and self._receipt_matches(record, profile, terminal):
             raw_state = terminal.get("launch_state")
@@ -561,6 +559,16 @@ class LocalWorkerV2Service:
                 result=dict(result),
                 exit_code=exit_code,
             )
+        return None
+
+    async def reconcile(self, record: LaunchRecord) -> LaunchRecord:
+        record, profile = await self._validate_record_profile(record)
+        if profile is None or record.job_id is None or record.launch_nonce is None:
+            return record
+        job_dir = self._job_dir(record.job_id)
+        terminal = await self._terminal_record(record, profile, job_dir)
+        if terminal is not None:
+            return terminal
         started = read_json_receipt(job_dir / "started.json")
         if started is None or not self._receipt_matches(record, profile, started):
             return record
@@ -596,6 +604,12 @@ class LocalWorkerV2Service:
         )
         if birth_matches and nonce_lock_held:
             return attached
+        # The runner publishes terminal.json before releasing its nonce lock. It may have
+        # completed between the first receipt read and the identity checks above. Re-read the
+        # fully bound receipt before declaring uncertainty; never infer success from process exit.
+        terminal = await self._terminal_record(attached, profile, job_dir)
+        if terminal is not None:
+            return terminal
         return await asyncio.to_thread(
             self.registry.record_launch_error,
             record.idempotency_key,

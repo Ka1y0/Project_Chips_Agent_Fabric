@@ -160,8 +160,7 @@ evidence.
 - no Project_Bridge handshake/probe execution;
 - no compression-quality or decode-confidence claim;
 - no scheduler routing based on Bridge support;
-- no persistence/migration for Bridge artifacts or telemetry;
-- no Cyber Office presentation; and
+- no storage of codec artifacts or codec telemetry (typed node receipts are separate; see below);
 - no claim of Project_Bridge protocol compatibility.
 
 A future complete integration requires a licensed/versioned Project_Bridge contract, authenticated
@@ -181,3 +180,33 @@ The offline foundation uses no credentials, model quota, or network:
 The tests cover disabled-by-default behavior, exact negotiation, schema validation, full-envelope
 tamper detection, strict fields and bounds, every prohibited authority class, unchanged fallback,
 validation/hash/decode/timeout reason codes, and absence of raw payload in telemetry.
+
+## Authenticated node exchange prototype
+
+`bridge/node_exchange.py` now provides an opt-in asynchronous `NodeBridgeTransport` seam and a
+SQLite derived inbox/outbox (migration 0015). This supersedes only the above "no persistence" item;
+there is still no built-in network endpoint, cryptographic enrollment or real Project_Bridge codec.
+
+An operator injects a transport that supplies verified public node identity and authenticated,
+encrypted, healthy, fresh transport evidence. Envelope SHA-256 is integrity only. The exchange checks
+that transport identity against pre-existing `node_public_identities`, rejects superseded keys,
+validates exact envelope/codec versions and strict typed payloads, binds sender/receiver/task IDs,
+checks five-minute message lifetime, and deduplicates exact message replays. Conflicting replays fail
+closed. No received field enrolls a node, changes canonical Worker health, or grants a capability.
+
+Node status carries only node ID, state, Worker count and validity timestamps. It remains an observed
+remote claim in a derived projection, never an update to the local node registry. Task delegation
+carries a digest of a pre-reviewed local Task, not an arbitrary shell/prompt. Both peers must already
+have the matching Task, restricted to GREEN, SINGLE, RESEARCH/REVIEW and no code writes. Each side
+requires its own active, expiring, task-scoped capability grant with subject equal to its peer node:
+`bridge.delegate.send` or `bridge.delegate.receive`. Unknown constraints fail closed. Receipt does
+not create or execute a Task; normal local scheduling/approval is still a separate operation.
+
+Outbound intent is durable before transport send. `bridgeSent` records successful transport return,
+not guaranteed remote processing. Failure retains intent and appends `bridgeSendFailed`; the caller
+must handle delivery/retry explicitly. Inbound validation failures journal only a fixed rejection
+summary, never raw payload or exception text. No credentials or private keys enter this seam.
+
+`GET /v1/bridge` and CLI `bridge` expose derived receipts with provenance and hashes. Out-of-order
+status is sorted by observation time; the UI must display timestamps and treat expired claims as
+stale. Deterministic fake authenticated transports exercise the seam without network/provider use.

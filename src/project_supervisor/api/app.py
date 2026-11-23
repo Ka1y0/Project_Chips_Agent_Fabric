@@ -6,12 +6,21 @@ import sqlite3
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import ValidationError
 
 from project_supervisor.domain import RunState
+from project_supervisor.exploration_control import (
+    ExplorationControlRequest,
+    StaleControlRevision,
+    set_control,
+)
 from project_supervisor.store import StateStore
 
 from .projections import SEVERITY_RANK, SupervisorProjection
@@ -25,8 +34,29 @@ from .schemas import (
     GoalStopRequest,
     KeepaliveFrame,
     SnapshotFrame,
+    StreamAuthentication,
     envelope,
 )
+
+
+class OfficeFiles(StaticFiles):
+    """Public presentation assets contain no credentials or authoritative state."""
+
+    async def get_response(self, path: str, scope: dict) -> Any:
+        response = await super().get_response(path, scope)
+        response.headers.update(
+            {
+                "Content-Security-Policy": (
+                    "default-src 'none'; script-src 'self'; style-src 'self'; "
+                    "img-src 'self' data:; connect-src 'self'; font-src 'self'; "
+                    "base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+                ),
+                "X-Content-Type-Options": "nosniff",
+                "Referrer-Policy": "no-referrer",
+                "Cache-Control": "no-cache",
+            }
+        )
+        return response
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +140,11 @@ def create_app(
     app.state.api_settings = settings
     app.state.projection = projection
     app.state.goal_service = goal_service
+    app.mount(
+        "/office",
+        OfficeFiles(directory=Path(__file__).resolve().parents[1] / "ui", html=True),
+        name="cyber-office",
+    )
 
     def loopback_dev_allowed(peer_host: str | None) -> bool:
         return (
@@ -204,9 +239,16 @@ def create_app(
                     "resourceEconomics",
                     "nodeRuntimeRecovery",
                     "events",
+                    "memory",
+                    "exploration",
+                    "bridge",
+                    "metabolicHeartbeat",
                 ],
                 "mutations": (
-                    ["goal.create", "goal.pause", "goal.resume", "goal.steer", "goal.stop"]
+                    [
+                        "goal.create", "goal.pause", "goal.resume", "goal.steer", "goal.stop",
+                        "exploration.control",
+                    ]
                     if settings.allow_goal_mutations
                     else []
                 ),
@@ -355,6 +397,38 @@ def create_app(
         except KeyError as error:
             raise HTTPException(status_code=404, detail=f"unknown goal: {goal_id}") from error
         return envelope(value)
+
+    @app.get("/v1/memory", dependencies=[Depends(authorize)])
+    async def memory(
+        project_id: str | None = Query(default=None, alias="projectID"),
+        limit: int = Query(default=100, ge=1, le=1000),
+    ) -> dict:
+        return envelope(
+            await asyncio.to_thread(projection.memory, project_id=project_id, limit=limit)
+        )
+
+    @app.get("/v1/exploration", dependencies=[Depends(authorize)])
+    async def exploration() -> dict:
+        return envelope(await asyncio.to_thread(projection.exploration))
+
+    @app.post("/v1/exploration/control", dependencies=[Depends(authorize_goal_control)])
+    async def control_exploration(body: ExplorationControlRequest) -> dict:
+        try:
+            receipt = await asyncio.to_thread(set_control, store, body)
+        except StaleControlRevision as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        return envelope(receipt.model_dump())
+
+    @app.get("/v1/bridge", dependencies=[Depends(authorize)])
+    async def bridge() -> dict:
+        return envelope(await asyncio.to_thread(projection.bridge))
+
+    @app.get("/v1/autonomy/heartbeat", dependencies=[Depends(authorize)])
+    async def heartbeat(
+        goal_id: str | None = Query(default=None, alias="goalID"),
+        limit: int = Query(default=100, ge=1, le=1000),
+    ) -> dict:
+        return envelope(await asyncio.to_thread(projection.heartbeat, goal_id=goal_id, limit=limit))
 
     @app.get("/v1/autonomy/hosts", dependencies=[Depends(authorize)])
     async def autonomy_hosts() -> dict:
@@ -648,15 +722,41 @@ def create_app(
         after_sequence: int = Query(default=0, alias="afterSequence", ge=0),
     ) -> None:
         peer = websocket.client.host if websocket.client else None
-        if not loopback_dev_allowed(peer):
-            token = _bearer(websocket.headers)
-            if token is None or not store.verify_api_token(token, settings.required_scope):
+        token = _bearer(websocket.headers)
+        browser_protocol = "chips-observe-v1" in _csv(
+            websocket.headers.get("sec-websocket-protocol")
+        )
+        if browser_protocol:
+            # Browsers cannot set Authorization on WebSocket. Authenticate in the first bounded
+            # frame, never a URL/subprotocol token. No projection is sent before authorization.
+            origin = websocket.headers.get("origin")
+            if origin and (
+                urlsplit(origin).netloc != websocket.headers.get("host")
+                or urlsplit(origin).scheme not in {"http", "https"}
+            ):
                 await websocket.close(code=4403)
                 return
-        await websocket.accept()
+            await websocket.accept(subprotocol="chips-observe-v1")
+            try:
+                frame = await asyncio.wait_for(websocket.receive_text(), timeout=5.0)
+                if len(frame.encode("utf-8")) > 8192:
+                    raise ValueError("authentication frame too large")
+                authentication = StreamAuthentication.model_validate_json(frame)
+                token = authentication.token
+            except (TimeoutError, ValueError, ValidationError, WebSocketDisconnect, KeyError):
+                await websocket.close(code=4403)
+                return
+        if not loopback_dev_allowed(peer) and (
+            token is None or not store.verify_api_token(token, settings.required_scope)
+        ):
+            await websocket.close(code=4403)
+            return
+        if not browser_protocol:
+            await websocket.accept()
         last_sent = after_sequence
         loop = asyncio.get_running_loop()
         next_keepalive = loop.time() + settings.keepalive_seconds
+        incoming = asyncio.create_task(websocket.receive())
         try:
             snapshot = await asyncio.to_thread(
                 projection.snapshot, recent_event_limit=settings.recent_event_limit
@@ -683,7 +783,18 @@ def create_app(
                     break
 
             while True:
-                await asyncio.sleep(settings.poll_interval_seconds)
+                ready, _ = await asyncio.wait({incoming}, timeout=settings.poll_interval_seconds)
+                if ready:
+                    message = incoming.result()
+                    if message["type"] != "websocket.disconnect":
+                        # Observation streams have no post-authentication command channel.
+                        await websocket.close(code=4400)
+                    return
+                if not loopback_dev_allowed(peer) and (
+                    token is None or not store.verify_api_token(token, settings.required_scope)
+                ):
+                    await websocket.close(code=4403)
+                    return
                 page = await asyncio.to_thread(
                     projection.events,
                     limit=settings.stream_batch_size,
@@ -714,5 +825,8 @@ def create_app(
                     next_keepalive = loop.time() + settings.keepalive_seconds
         except (WebSocketDisconnect, RuntimeError):
             return
+        finally:
+            incoming.cancel()
+            await asyncio.gather(incoming, return_exceptions=True)
 
     return app

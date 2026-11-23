@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
@@ -185,7 +186,8 @@ class SupervisorRuntime:
             if task["state"] == TaskState.INTERRUPTED.value:
                 if task_ids is not None and task["id"] not in task_ids:
                     continue
-                if int(task["attempt_count"]) >= self.max_attempts:
+                attempt_limit = self.store.task_attempt_limit(task["id"], self.max_attempts)
+                if int(task["attempt_count"]) >= attempt_limit:
                     terminal = await asyncio.to_thread(
                         self.store.transition_task,
                         task["id"],
@@ -194,7 +196,7 @@ class SupervisorRuntime:
                         summary="Interrupted task exhausted its execution attempt limit",
                         payload={
                             "attemptCount": int(task["attempt_count"]),
-                            "maxAttempts": self.max_attempts,
+                            "maxAttempts": attempt_limit,
                         },
                     )
                     await self.audit_task_terminal(task["id"], task=terminal)
@@ -992,7 +994,12 @@ class SupervisorRuntime:
             await asyncio.to_thread(self.store.transition_task, task_id, TaskState.READY)
         return task_id
 
-    async def dispatch_ready(self, *, task_ids: set[str] | None = None) -> DispatchSummary:
+    async def dispatch_ready(
+        self,
+        *,
+        task_ids: set[str] | None = None,
+        dispatch_guard: Callable[[], None] | None = None,
+    ) -> DispatchSummary:
         launched: list[str] = []
         blocked: list[str] = []
         deferred: list[str] = []
@@ -1007,7 +1014,8 @@ class SupervisorRuntime:
                     continue
                 if task["state"] != TaskState.READY.value or task_id in self._active:
                     continue
-                if int(task["attempt_count"]) >= self.max_attempts:
+                attempt_limit = self.store.task_attempt_limit(task_id, self.max_attempts)
+                if int(task["attempt_count"]) >= attempt_limit:
                     try:
                         terminal = await asyncio.to_thread(
                             self.store.transition_task,
@@ -1017,7 +1025,7 @@ class SupervisorRuntime:
                             summary="Task execution attempt limit exhausted before dispatch",
                             payload={
                                 "attemptCount": int(task["attempt_count"]),
-                                "maxAttempts": self.max_attempts,
+                                "maxAttempts": attempt_limit,
                             },
                             expected_version=int(task["version"]),
                         )
@@ -1139,6 +1147,8 @@ class SupervisorRuntime:
                     )
                     blocked.append(task_id)
                     continue
+                if dispatch_guard is not None:
+                    dispatch_guard()
                 contract_observation_failed = False
                 for worker_id in decision.selected_worker_ids:
                     adapter = self.adapters.get(worker_id)
@@ -1171,7 +1181,8 @@ class SupervisorRuntime:
                     timeout_at=utc_now() + timedelta(seconds=self.worker_timeout_seconds),
                     lease_owner_id=self.runtime_id,
                     lease_ttl_seconds=self.dispatch_lease_ttl_seconds,
-                    max_attempts=self.max_attempts,
+                    max_attempts=attempt_limit,
+                    dispatch_guard=dispatch_guard,
                 )
                 if claim is None:
                     # A peer may have claimed this Task, or a Worker reservation may have changed.
@@ -1208,6 +1219,7 @@ class SupervisorRuntime:
                         attempt=int(claim["attempt"]),
                         run_ids=dict(claim["runIDs"]),
                         lease_generation=int(claim["leaseGeneration"]),
+                        dispatch_guard=dispatch_guard,
                     ),
                     name=f"supervisor:{task_id}",
                 )
@@ -1710,6 +1722,7 @@ class SupervisorRuntime:
         attempt: int,
         run_ids: dict[str, str],
         lease_generation: int,
+        dispatch_guard: Callable[[], None] | None = None,
     ) -> None:
         execution = asyncio.create_task(
             self._execute_task_under_lease(
@@ -1719,6 +1732,7 @@ class SupervisorRuntime:
                 attempt=attempt,
                 run_ids=run_ids,
                 lease_generation=lease_generation,
+                dispatch_guard=dispatch_guard,
             ),
             name=f"supervisor-execution:{task['id']}",
         )
@@ -1791,6 +1805,7 @@ class SupervisorRuntime:
         attempt: int,
         run_ids: dict[str, str],
         lease_generation: int,
+        dispatch_guard: Callable[[], None] | None = None,
     ) -> None:
         project = await asyncio.to_thread(self.store.get_project, task["project_id"])
         role_assignments = self._task_roles(
@@ -1807,6 +1822,7 @@ class SupervisorRuntime:
                 task_role=task_role,
                 fallback=fallback,
                 lease_generation=lease_generation,
+                dispatch_guard=dispatch_guard,
             )
             for worker_id, task_role, fallback in role_assignments
         ]
@@ -1906,6 +1922,7 @@ class SupervisorRuntime:
         task_role: TaskRole,
         fallback: bool,
         lease_generation: int,
+        dispatch_guard: Callable[[], None] | None = None,
     ) -> WorkerResult:
         activated = await asyncio.to_thread(
             self.store.activate_worker_run,
@@ -1962,6 +1979,8 @@ class SupervisorRuntime:
                 lease_owner_id=self.runtime_id,
                 lease_generation=lease_generation,
             )
+            if dispatch_guard is not None:
+                dispatch_guard()
             if isinstance(adapter, DurableWorkerAdapter):
                 handle = await adapter.start_job(
                     request,

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "interval_seconds": {
+      "default": 30.0,
+      "exclusiveMinimum": 0,
+      "title": "Interval Seconds",
+      "type": "number"
+    },
+    "max_daily_wakes": {
+      "default": 24,
+      "minimum": 0,
+      "title": "Max Daily Wakes",
+      "type": "integer"
+    },
+    "backoff_seconds": {
+      "default": 60.0,
+      "exclusiveMinimum": 0,
+      "title": "Backoff Seconds",
+      "type": "number"
+    },
+    "iteration_sleep_seconds": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Iteration Sleep Seconds"
+    },
+    "introspection_enabled": {
+      "default": false,
+      "title": "Introspection Enabled",
+      "type": "boolean"
+    },
+    "max_daily_inspections": {
+      "default": 4,
+      "minimum": 0,
+      "title": "Max Daily Inspections",
+      "type": "integer"
+    }
+  },
+  "title": "HeartbeatConfig",
+  "type": "object"
+}

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "node-bridge/v1",
+      "default": "node-bridge/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "kind": {
+      "const": "delegationProposal",
+      "default": "delegationProposal",
+      "title": "Kind",
+      "type": "string"
+    },
+    "task_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Task Id",
+      "type": "string"
+    },
+    "task_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Task Sha256",
+      "type": "string"
+    },
+    "permission_class": {
+      "const": "green",
+      "default": "green",
+      "title": "Permission Class",
+      "type": "string"
+    },
+    "code_write_required": {
+      "const": false,
+      "default": false,
+      "title": "Code Write Required",
+      "type": "boolean"
+    },
+    "labels": {
+      "items": {
+        "enum": [
+          "research",
+          "review"
+        ],
+        "type": "string"
+      },
+      "maxItems": 2,
+      "minItems": 1,
+      "title": "Labels",
+      "type": "array"
+    },
+    "observed_at": {
+      "title": "Observed At",
+      "type": "string"
+    },
+    "expires_at": {
+      "title": "Expires At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "task_id",
+    "task_sha256",
+    "labels",
+    "observed_at",
+    "expires_at"
+  ],
+  "title": "DelegationPayload",
+  "type": "object"
+}

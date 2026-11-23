@@ -332,6 +332,42 @@ class SupervisorProjection:
             raise KeyError(goal_id)
         return self._goal(self.goal_reader.get_goal(goal_id))
 
+    def memory(self, *, project_id: str | None = None, limit: int = 100) -> dict[str, Any]:
+        from ..memory import MemoryRepository
+
+        entries = MemoryRepository(self.store).list_entries(project_id=project_id, limit=limit)
+        with self.store.connect() as connection:
+            summaries = connection.execute(
+                "SELECT r.* FROM reflection_summaries r JOIN autonomous_goals g ON g.id=r.goal_id "
+                "WHERE (? IS NULL OR g.project_id=?) ORDER BY r.created_at DESC LIMIT ?",
+                (project_id, project_id, limit),
+            ).fetchall()
+        return {
+            "entries": [entry.model_dump() for entry in entries],
+            "reflections": [dict(row) for row in summaries],
+            "authority": "advisoryOnly",
+        }
+
+    def exploration(self) -> dict[str, Any]:
+        from ..resource_economics import ResourceEconomicsRepository
+
+        return ResourceEconomicsRepository(self.store).exploration_budget()
+
+    def bridge(self) -> dict[str, Any]:
+        rows = self._rows(
+            "SELECT sequence,message_id,direction,peer_node_id,kind,envelope_sha256,"
+            "content_sha256,content_json,observed_at,created_at FROM bridge_messages "
+            "ORDER BY observed_at DESC,sequence DESC LIMIT 100"
+        )
+        for row in rows:
+            row["content"] = _json(row.pop("content_json"), {})
+        return {"messages": rows, "authority": "derivedOnly"}
+
+    def heartbeat(self, *, goal_id: str | None = None, limit: int = 100) -> dict[str, Any]:
+        from ..heartbeat import MetabolicHeartbeat
+
+        return {"ticks": MetabolicHeartbeat(self.store).list_ticks(goal_id=goal_id, limit=limit)}
+
     def autonomy_hosts(self, *, host_id: str | None = None) -> list[dict[str, Any]]:
         from project_supervisor.autonomous_host import AutonomousHostRepository
 
@@ -447,6 +483,11 @@ class SupervisorProjection:
             "effectiveIntent": row.get("effective_intent", row["intent"]),
             "state": row["state"],
             "pauseMode": row.get("pause_mode"),
+            "wakeState": row.get("wake_state", "awake"),
+            "nextWakeAt": row.get("next_wake_at"),
+            "wakeReason": row.get("wake_reason"),
+            "cooldownUntil": row.get("cooldown_until"),
+            "origin": row.get("origin", "human"),
             "terminationReason": row.get("termination_reason"),
             "terminationDetail": row.get("termination_detail"),
             "iterationCount": int(row.get("iteration_count", 0)),
@@ -610,6 +651,15 @@ class SupervisorProjection:
         run_by_worker: dict[str, dict[str, Any]] = {}
         for run in active_runs:
             run_by_worker.setdefault(run["worker_id"], run)
+        goal_by_task: dict[str, str] = {}
+        for task_id in {run["task_id"] for run in run_by_worker.values()}:
+            bindings = self._rows(
+                "SELECT goal_id FROM autonomous_actions WHERE task_id=? UNION "
+                "SELECT goal_id FROM autonomy_decision_tasks WHERE task_id=?",
+                (task_id, task_id),
+            )
+            if len(bindings) == 1:
+                goal_by_task[task_id] = bindings[0]["goal_id"]
         resource_rows = self._rows(
             "SELECT rs.* FROM resource_states rs JOIN (SELECT worker_id,MAX(observed_at) observed "
             "FROM resource_states WHERE worker_id IS NOT NULL GROUP BY worker_id) latest "
@@ -664,6 +714,8 @@ class SupervisorProjection:
                         "lastActivity": run["failure_detail"] or run["state"],
                     }
                 )
+                if run["task_id"] in goal_by_task:
+                    value["currentGoalID"] = goal_by_task[run["task_id"]]
             if row["harness_version"] is not None:
                 value["harnessVersion"] = row["harness_version"]
             result.append(value)

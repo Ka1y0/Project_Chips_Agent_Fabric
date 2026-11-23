@@ -10,7 +10,7 @@ import sqlite3
 import threading
 import time
 import uuid
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -1603,6 +1603,14 @@ class StateStore:
                 )
         return True
 
+    def task_attempt_limit(self, task_id: str, default: int) -> int:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT g.origin FROM autonomous_goals g JOIN autonomy_decision_tasks d "
+                "ON d.goal_id=g.id WHERE d.task_id=?", (task_id,),
+            ).fetchone()
+        return min(default, 1) if row is not None and row[0] == "exploration" else default
+
     def claim_task_dispatch(
         self,
         task_id: str,
@@ -1614,6 +1622,7 @@ class StateStore:
         lease_ttl_seconds: float = 30.0,
         max_attempts: int | None = None,
         actor: str = "runtime",
+        dispatch_guard: Callable[[], None] | None = None,
     ) -> dict[str, Any] | None:
         """Atomically claim a READY Task, its Workers, and durable STARTING executions.
 
@@ -1632,6 +1641,10 @@ class StateStore:
         if max_attempts is not None and max_attempts < 1:
             raise ValueError("max_attempts must be positive")
         with self.transaction() as connection:
+            if max_attempts is not None:
+                max_attempts = self.task_attempt_limit(task_id, max_attempts)
+            if dispatch_guard is not None:
+                dispatch_guard()
             task = connection.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
             if task is None:
                 raise KeyError(task_id)

@@ -1,0 +1,24 @@
+:root {
+  color-scheme:dark;
+  --canvas:#0a0c0f;
+  --surface:#12151b;
+  --text:#eae2ce;
+  --muted:#9b978b;
+  --brass:#c8a253;
+  --vermilion:#9e3b33;
+  --danger-text:#e89a8c;
+  --lapis:#3d6b8e;
+  --lapis-text:#8fb8d5;
+  --line:#34352f;
+  --serif:"Noto Serif CJK SC","Songti SC","STSong",Georgia,serif;
+  --sans:"Noto Sans CJK SC","PingFang SC",system-ui,sans-serif;
+  --mono:"SFMono-Regular",Consolas,"Liberation Mono",monospace;
+  --space-1:4px;
+  --space-2:8px;
+  --space-3:12px;
+  --space-4:16px;
+  --space-6:24px;
+  --space-8:32px;
+  --hairline:1px solid var(--line);
+  --motion:180ms ease
+}

@@ -888,3 +888,31 @@ def test_websocket_snapshot_replay_and_keepalive(api_store: StateStore) -> None:
         keepalive = socket.receive_json()
         assert keepalive["type"] == "keepalive"
         assert keepalive["highestSequence"] == api_store.highest_event_sequence()
+
+
+def test_worker_goal_binding_includes_read_only_decision_tasks(api_store):
+    from project_supervisor.autonomy import GoalService
+
+    GoalService(api_store).create_goal(
+        project_id="project-1", intent="Read-only inspection", goal_id="inspection"
+    )
+    now = timestamp()
+    with api_store.transaction() as connection:
+        connection.execute(
+            "INSERT INTO autonomous_iterations(id,goal_id,sequence,state,started_at,updated_at) "
+            "VALUES ('inspection-iteration','inspection',1,'evaluating',?,?)",
+            (now, now),
+        )
+        connection.execute(
+            "INSERT INTO autonomy_decision_tasks(task_id,goal_id,iteration_id,iteration_sequence,"
+            "phase,steer_version,schema_version,input_sha256,status,created_at,updated_at) "
+            "VALUES ('task-1','inspection','inspection-iteration',1,'evaluation',0,"
+            "'autonomy-decision/v1',?,'pending',?,?)",
+            ("0" * 64, now, now),
+        )
+    with TestClient(create_app(api_store, allow_unauthenticated_loopback=True)) as client:
+        worker = client.get("/v1/workers").json()["data"][0]
+        assert worker["currentTaskID"] == "task-1"
+        assert worker["currentGoalID"] == "inspection"
+        goal = client.get("/v1/goals/inspection").json()["data"]
+        assert goal["generatedTasks"] == []  # No action Task exists for an advisory inspection.

@@ -5,6 +5,7 @@ import json
 import os
 import sqlite3
 import threading
+import time
 import uuid
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager, suppress
@@ -163,7 +164,20 @@ class LaunchRegistry:
     def _initialize(self) -> None:
         try:
             with self._connect() as connection:
-                connection.execute("PRAGMA journal_mode=WAL")
+                # Changing journal mode can return SQLITE_BUSY immediately, even with a busy
+                # timeout. Only this pre-transaction, idempotent operation may be retried.
+                deadline = time.monotonic() + 10.0
+                while True:
+                    try:
+                        connection.execute("PRAGMA journal_mode=WAL")
+                        break
+                    except sqlite3.OperationalError as error:
+                        if (
+                            getattr(error, "sqlite_errorcode", None) != sqlite3.SQLITE_BUSY
+                            or time.monotonic() >= deadline
+                        ):
+                            raise
+                        time.sleep(0.01)
                 connection.execute("PRAGMA synchronous=FULL")
                 connection.execute("BEGIN IMMEDIATE")
                 try:

@@ -1150,3 +1150,104 @@ def test_native_profile_fences_same_bytes_replacement_and_writable_executable(
                     "max_execution_seconds": 5,
                 }
             )
+
+
+@pytest.mark.parametrize("state,live", [("S", True), ("Z", False), ("X", False)])
+def test_linux_birth_rejects_exited_unreaped_process(monkeypatch, state, live) -> None:
+    from project_supervisor.local_worker_v2.process import _linux_birth
+
+    def read(path, **kwargs):
+        return (
+            "fixture-boot"
+            if str(path).endswith("boot_id")
+            else ("123 (fixture runner) " + state + " " + "0 " * 18 + "42")
+        )
+
+    monkeypatch.setattr(Path, "read_text", read)
+    assert (_linux_birth(123) is not None) is live
+
+
+@pytest.mark.parametrize("error_code", [sqlite3.SQLITE_BUSY, sqlite3.SQLITE_IOERR])
+def test_registry_retries_only_busy_wal_initialization(tmp_path, monkeypatch, error_code):
+    original_connect = LaunchRegistry._connect
+    wal_attempts = []
+
+    class ConnectionProxy:
+        def __init__(self, connection):
+            self.connection = connection
+
+        def __enter__(self):
+            self.connection.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.connection.__exit__(*args)
+
+        def __getattr__(self, name):
+            return getattr(self.connection, name)
+
+        def execute(self, sql, *args):
+            if sql == "PRAGMA journal_mode=WAL":
+                wal_attempts.append(sql)
+                if len(wal_attempts) <= 2:
+                    error = sqlite3.OperationalError("fixture initialization conflict")
+                    error.sqlite_errorcode = error_code
+                    raise error
+            return self.connection.execute(sql, *args)
+
+    monkeypatch.setattr(
+        LaunchRegistry, "_connect", lambda self: ConnectionProxy(original_connect(self))
+    )
+    monkeypatch.setattr(registry_module.time, "sleep", lambda _: None)
+    if error_code == sqlite3.SQLITE_BUSY:
+        opened = registry(tmp_path)
+        assert opened.registry_id
+        assert len(wal_attempts) == 3
+    else:
+        with pytest.raises(RegistryUnavailable):
+            registry(tmp_path)
+        assert len(wal_attempts) == 1
+
+
+@pytest.mark.parametrize("matching", [True, False])
+async def test_terminal_receipt_published_during_liveness_check(tmp_path, monkeypatch, matching):
+    import project_supervisor.local_worker_v2.server as server_module
+
+    store = registry(tmp_path)
+    record, _ = reserve(store, launch_body("supervisor-execution:finish-race"))
+    record, claimed = store.claim_spawn(record.idempotency_key)
+    assert claimed
+    job_dir = tmp_path / "jobs" / record.job_id
+    started = {
+        "protocol_version": 2,
+        "job_id": record.job_id,
+        "idempotency_key": record.idempotency_key,
+        "launch_nonce": record.launch_nonce,
+        "request_digest": record.request_digest,
+        "process_host_identity": store.process_host_identity,
+        "pid": 123,
+        "process_birth_identity": "fixture-birth",
+    }
+    atomic_write_json(job_dir / "started.json", started)
+
+    def finish_during_check(_path):
+        atomic_write_json(
+            job_dir / "terminal.json",
+            {
+                **started,
+                "launch_nonce": record.launch_nonce if matching else "different-nonce",
+                "launch_state": "COMPLETED",
+                "result": {"state": "COMPLETED", "result": {"content": "done"}, "metrics": {}},
+                "exit_code": 0,
+            },
+        )
+        return False
+
+    monkeypatch.setattr(server_module, "job_lock_is_held", finish_during_check)
+    monkeypatch.setattr(server_module, "process_identity_matches", lambda *_: False)
+    app = create_app(store, spool_root=tmp_path / "jobs")
+    observed = await app.state.local_worker_service.reconcile(record)
+    assert observed.launch_state is (LaunchState.COMPLETED if matching else LaunchState.RUNNING)
+    assert observed.launch_error == (
+        None if matching else "PROCESS_IDENTITY_OR_NONCE_LOCK_MISMATCH"
+    )

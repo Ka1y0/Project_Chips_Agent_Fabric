@@ -353,6 +353,9 @@ def test_existing_v01_database_upgrades_without_rewriting_prior_migrations(tmp_p
         "0011_durable_provider_jobs",
         "0012_task_verification_scopes",
         "0013_local_worker_protocol_v2",
+        "0014_metabolic_heartbeat",
+        "0015_memory_exploration_bridge",
+        "0016_exploration_control",
     ]
     assert {
         "autonomous_goals",

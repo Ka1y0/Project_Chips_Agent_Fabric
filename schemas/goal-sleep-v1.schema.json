@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "goal-sleep/v1",
+      "default": "goal-sleep/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "wake_reason": {
+      "enum": [
+        "timer",
+        "quotaCooldown",
+        "workerHealth",
+        "introspection"
+      ],
+      "title": "Wake Reason",
+      "type": "string"
+    },
+    "next_wake_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Wake At"
+    },
+    "cooldown_until": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cooldown Until"
+    },
+    "worker_id": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Worker Id"
+    },
+    "quota_pool_id": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Quota Pool Id"
+    },
+    "inspection_interval_seconds": {
+      "anyOf": [
+        {
+          "minimum": 60,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Inspection Interval Seconds"
+    }
+  },
+  "required": [
+    "wake_reason"
+  ],
+  "title": "SleepPolicy",
+  "type": "object"
+}

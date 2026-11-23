@@ -347,7 +347,7 @@ def _start_host(fixture: Fixture, host_id: str) -> HostProcess:
         "--heartbeat-interval-seconds",
         "0.05",
         "--lease-ttl-seconds",
-        "0.30",
+        "1.0",
         "--shutdown-grace-seconds",
         "1.0",
         "--executable-override",
@@ -548,7 +548,8 @@ def _concurrent_and_resources(root: Path) -> dict[str, Any]:
 
 
 def _controls(root: Path) -> dict[str, Any]:
-    fixture = _fixture(root)
+    # Leave room for a fresh Python CLI to submit control before the fake Worker completes.
+    fixture = _fixture(root, delay_seconds=1.0)
     host = _start_host(fixture, "host-controls")
     try:
         _wait(

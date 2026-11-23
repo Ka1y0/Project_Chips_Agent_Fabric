@@ -76,6 +76,12 @@ class ResourceEconomicsRepository:
     def __init__(self, store: ResourceEconomicsStore) -> None:
         self.store = store
 
+    def exploration_budget(self) -> dict[str, Any]:
+        """Reservation counts stay distinct from actual, potentially unavailable, usage."""
+        from .exploration import ExplorationService
+
+        return ExplorationService(self.store).status()
+
     def aggregate(
         self, *, project_id: str | None = None, goal_id: str | None = None
     ) -> ResourceEconomicsAggregate:

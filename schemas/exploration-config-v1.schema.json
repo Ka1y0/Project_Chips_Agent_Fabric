@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "default": false,
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "exploration_budget_cap": {
+      "default": 2,
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Exploration Budget Cap",
+      "type": "integer"
+    },
+    "cooldown_seconds": {
+      "default": 3600.0,
+      "minimum": 60,
+      "title": "Cooldown Seconds",
+      "type": "number"
+    }
+  },
+  "title": "ExplorationConfig",
+  "type": "object"
+}

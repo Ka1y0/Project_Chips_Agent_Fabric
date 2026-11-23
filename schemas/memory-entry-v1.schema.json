@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "source_goal_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Source Goal Id",
+      "type": "string"
+    },
+    "source_event_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Source Event Id",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "conclusion",
+        "failureLesson",
+        "toolPreference",
+        "environment",
+        "memoryGap",
+        "hypothesis",
+        "blocker"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "content": {
+      "maxLength": 4000,
+      "minLength": 1,
+      "title": "Content",
+      "type": "string"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 12,
+      "title": "Tags",
+      "type": "array"
+    },
+    "importance": {
+      "default": 50,
+      "maximum": 100,
+      "minimum": 0,
+      "title": "Importance",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "memory-entry/v1",
+      "default": "memory-entry/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "project_id": {
+      "title": "Project Id",
+      "type": "string"
+    },
+    "content_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Content Sha256",
+      "type": "string"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "authority": {
+      "const": "advisoryOnly",
+      "default": "advisoryOnly",
+      "title": "Authority",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source_goal_id",
+    "source_event_id",
+    "kind",
+    "content",
+    "id",
+    "project_id",
+    "content_sha256",
+    "created_at"
+  ],
+  "title": "MemoryEntry",
+  "type": "object"
+}

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "node-bridge/v1",
+      "default": "node-bridge/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "kind": {
+      "const": "nodeStatus",
+      "default": "nodeStatus",
+      "title": "Kind",
+      "type": "string"
+    },
+    "node_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Node Id",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "online",
+        "degraded",
+        "offline",
+        "unprovisioned"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "worker_count": {
+      "maximum": 100000,
+      "minimum": 0,
+      "title": "Worker Count",
+      "type": "integer"
+    },
+    "observed_at": {
+      "title": "Observed At",
+      "type": "string"
+    },
+    "expires_at": {
+      "title": "Expires At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "node_id",
+    "state",
+    "worker_count",
+    "observed_at",
+    "expires_at"
+  ],
+  "title": "NodeStatusPayload",
+  "type": "object"
+}

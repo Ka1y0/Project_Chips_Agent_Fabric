@@ -103,6 +103,13 @@ class SnapshotFrame(APIModel):
     snapshot: dict[str, Any]
 
 
+class StreamAuthentication(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    type: Literal["authenticate"]
+    token: str = Field(max_length=4096)
+
+
 class EventsFrame(APIModel):
     type: Literal["events"] = "events"
     events: list[dict[str, Any]]

@@ -4,16 +4,21 @@ import asyncio
 import inspect
 import json
 import os
+import sqlite3
 import uuid
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any, Protocol
 
 from .autonomy import AutonomousIterationEngine, GoalService, GoalState
 from .domain import EventSeverity
+from .exploration import ExplorationConfig, ExplorationService
+from .exploration_control import read_control
+from .heartbeat import HeartbeatConfig, MetabolicHeartbeat, SleepPolicy, utc_time
+from .memory import MemoryRepository
 from .store import StateStore, compact_json, redact_sensitive
 
 
@@ -44,6 +49,8 @@ class AutonomousHostConfig:
     heartbeat_interval_seconds: float = 2.0
     lease_ttl_seconds: float = 10.0
     shutdown_grace_seconds: float = 10.0
+    metabolic: HeartbeatConfig = field(default_factory=HeartbeatConfig)
+    exploration: ExplorationConfig = field(default_factory=ExplorationConfig)
 
     def __post_init__(self) -> None:
         if self.max_concurrent_goals < 1:
@@ -244,7 +251,10 @@ class AutonomousHostRepository:
             rows = connection.execute(
                 "SELECT g.id FROM autonomous_goals g "
                 "LEFT JOIN autonomous_goal_leases lease ON lease.goal_id=g.id "
-                "WHERE g.state IN ('created','running') AND (lease.goal_id IS NULL "
+                "WHERE g.state IN ('created','running') AND g.wake_state='awake' "
+                "AND (g.origin<>'exploration' OR EXISTS (SELECT 1 FROM exploration_control "
+                "WHERE singleton=1 AND state='open')) "
+                "AND (lease.goal_id IS NULL "
                 "OR lease.state<>'owned' OR lease.expires_at<=?) "
                 "ORDER BY g.updated_at,g.id LIMIT ?",
                 (now, limit),
@@ -258,102 +268,122 @@ class AutonomousHostRepository:
         *,
         lease_ttl_seconds: float,
     ) -> GoalLeaseClaim | None:
-        now_value = datetime.now(UTC)
+        with self.store.transaction() as connection:
+            return self._acquire_goal(
+                connection,
+                goal_id,
+                host_id,
+                lease_ttl_seconds=lease_ttl_seconds,
+                now_value=datetime.now(UTC),
+            )
+
+    def _acquire_goal(
+        self,
+        connection: sqlite3.Connection,
+        goal_id: str,
+        host_id: str,
+        *,
+        lease_ttl_seconds: float,
+        now_value: datetime,
+    ) -> GoalLeaseClaim | None:
+        """Shared atomic claim path for ordinary discovery and metabolic waking."""
+
         now = _time(now_value)
         expires_at = _expires(now_value, lease_ttl_seconds)
-        with self.store.transaction() as connection:
-            goal = connection.execute(
-                "SELECT project_id,state FROM autonomous_goals WHERE id=?", (goal_id,)
+        goal = connection.execute(
+            "SELECT project_id,state,wake_state,origin FROM autonomous_goals WHERE id=?", (goal_id,)
+        ).fetchone()
+        if goal is None:
+            raise KeyError(goal_id)
+        if (
+            goal["state"] not in {GoalState.CREATED.value, GoalState.RUNNING.value}
+            or goal["wake_state"] != "awake"
+            or (goal["origin"] == "exploration" and read_control(connection).state == "paused")
+        ):
+            return None
+        if (
+            connection.execute(
+                "SELECT 1 FROM autonomous_hosts WHERE host_id=?", (host_id,)
             ).fetchone()
-            if goal is None:
-                raise KeyError(goal_id)
-            if goal["state"] not in {GoalState.CREATED.value, GoalState.RUNNING.value}:
-                return None
-            if (
-                connection.execute(
-                    "SELECT 1 FROM autonomous_hosts WHERE host_id=?", (host_id,)
-                ).fetchone()
-                is None
-            ):
-                raise KeyError(host_id)
-            lease = connection.execute(
-                "SELECT * FROM autonomous_goal_leases WHERE goal_id=?", (goal_id,)
-            ).fetchone()
-            stale = bool(
-                lease is not None and lease["state"] == "owned" and lease["expires_at"] <= now
-            )
-            if lease is not None and lease["state"] == "owned" and lease["expires_at"] > now:
-                return None
-            active_iteration = connection.execute(
-                "SELECT id FROM autonomous_iterations WHERE goal_id=? "
-                "AND state NOT IN ('completed','interrupted') "
-                "ORDER BY sequence DESC LIMIT 1",
-                (goal_id,),
-            ).fetchone()
-            recovery_state = (
-                "staleOwnerRecovered"
-                if stale
-                else "resuming"
-                if active_iteration is not None or goal["state"] == GoalState.RUNNING.value
-                else "fresh"
-            )
-            generation = int(lease["generation"]) + 1 if lease is not None else 1
-            previous_host_id = lease["host_id"] if lease is not None else None
-            if lease is None:
-                connection.execute(
-                    "INSERT INTO autonomous_goal_leases("
-                    "goal_id,host_id,generation,state,acquired_at,heartbeat_at,expires_at,"
-                    "recovery_state,previous_host_id"
-                    ") VALUES (?,?,?,?,?,?,?,?,?)",
-                    (
-                        goal_id,
-                        host_id,
-                        generation,
-                        "owned",
-                        now,
-                        now,
-                        expires_at,
-                        recovery_state,
-                        previous_host_id,
-                    ),
-                )
-            else:
-                connection.execute(
-                    "UPDATE autonomous_goal_leases SET host_id=?,generation=?,state='owned',"
-                    "acquired_at=?,heartbeat_at=?,expires_at=?,released_at=NULL,"
-                    "current_iteration_id=NULL,current_action_id=NULL,in_flight_state=NULL,"
-                    "recovery_state=?,previous_host_id=?,last_error=NULL WHERE goal_id=?",
-                    (
-                        host_id,
-                        generation,
-                        now,
-                        now,
-                        expires_at,
-                        recovery_state,
-                        previous_host_id,
-                        goal_id,
-                    ),
-                )
-            self.store._append_event(
-                connection,
-                kind=("autonomousGoalLeaseRecovered" if stale else "autonomousGoalLeaseAcquired"),
-                severity=EventSeverity.WARNING if stale else EventSeverity.INFO,
-                entity_type="autonomousGoalLease",
-                entity_id=goal_id,
-                project_id=goal["project_id"],
-                summary=(
-                    "Expired autonomous Goal lease recovered"
-                    if stale
-                    else "Autonomous Goal lease acquired"
+            is None
+        ):
+            raise KeyError(host_id)
+        lease = connection.execute(
+            "SELECT * FROM autonomous_goal_leases WHERE goal_id=?", (goal_id,)
+        ).fetchone()
+        stale = bool(lease is not None and lease["state"] == "owned" and lease["expires_at"] <= now)
+        if lease is not None and lease["state"] == "owned" and lease["expires_at"] > now:
+            return None
+        active_iteration = connection.execute(
+            "SELECT id FROM autonomous_iterations WHERE goal_id=? "
+            "AND state NOT IN ('completed','interrupted') "
+            "ORDER BY sequence DESC LIMIT 1",
+            (goal_id,),
+        ).fetchone()
+        recovery_state = (
+            "staleOwnerRecovered"
+            if stale
+            else "resuming"
+            if active_iteration is not None or goal["state"] == GoalState.RUNNING.value
+            else "fresh"
+        )
+        generation = int(lease["generation"]) + 1 if lease is not None else 1
+        previous_host_id = lease["host_id"] if lease is not None else None
+        if lease is None:
+            connection.execute(
+                "INSERT INTO autonomous_goal_leases("
+                "goal_id,host_id,generation,state,acquired_at,heartbeat_at,expires_at,"
+                "recovery_state,previous_host_id"
+                ") VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    goal_id,
+                    host_id,
+                    generation,
+                    "owned",
+                    now,
+                    now,
+                    expires_at,
+                    recovery_state,
+                    previous_host_id,
                 ),
-                payload={
-                    "hostID": host_id,
-                    "generation": generation,
-                    "recoveryState": recovery_state,
-                    "previousHostID": previous_host_id,
-                },
-                actor=f"autonomous-host:{host_id}",
             )
+        else:
+            connection.execute(
+                "UPDATE autonomous_goal_leases SET host_id=?,generation=?,state='owned',"
+                "acquired_at=?,heartbeat_at=?,expires_at=?,released_at=NULL,"
+                "current_iteration_id=NULL,current_action_id=NULL,in_flight_state=NULL,"
+                "recovery_state=?,previous_host_id=?,last_error=NULL WHERE goal_id=?",
+                (
+                    host_id,
+                    generation,
+                    now,
+                    now,
+                    expires_at,
+                    recovery_state,
+                    previous_host_id,
+                    goal_id,
+                ),
+            )
+        self.store._append_event(
+            connection,
+            kind=("autonomousGoalLeaseRecovered" if stale else "autonomousGoalLeaseAcquired"),
+            severity=EventSeverity.WARNING if stale else EventSeverity.INFO,
+            entity_type="autonomousGoalLease",
+            entity_id=goal_id,
+            project_id=goal["project_id"],
+            summary=(
+                "Expired autonomous Goal lease recovered"
+                if stale
+                else "Autonomous Goal lease acquired"
+            ),
+            payload={
+                "hostID": host_id,
+                "generation": generation,
+                "recoveryState": recovery_state,
+                "previousHostID": previous_host_id,
+            },
+            actor=f"autonomous-host:{host_id}",
+        )
         return GoalLeaseClaim(goal_id, host_id, generation, recovery_state, stale)
 
     def heartbeat_goal(
@@ -368,7 +398,8 @@ class AutonomousHostRepository:
             cursor = connection.execute(
                 "UPDATE autonomous_goal_leases SET heartbeat_at=?,expires_at=?,"
                 "current_iteration_id=?,current_action_id=?,in_flight_state=? "
-                "WHERE goal_id=? AND host_id=? AND generation=? AND state='owned'",
+                "WHERE goal_id=? AND host_id=? AND generation=? AND state='owned' "
+                "AND expires_at>?",
                 (
                     _time(now_value),
                     _expires(now_value, lease_ttl_seconds),
@@ -378,6 +409,7 @@ class AutonomousHostRepository:
                     claim.goal_id,
                     claim.host_id,
                     claim.generation,
+                    _time(now_value),
                 ),
             )
         return cursor.rowcount == 1
@@ -518,6 +550,8 @@ class AutonomousHost:
         self.host_id = host_id or f"host-{uuid.uuid4()}"
         self.process_id = process_id or os.getpid()
         self.repository = AutonomousHostRepository(store)
+        self.metabolism = MetabolicHeartbeat(store)
+        self._next_metabolic_tick: datetime | None = None
         self._shutdown = asyncio.Event()
         self._registered = False
         self._active: dict[str, asyncio.Task[dict[str, Any]]] = {}
@@ -588,6 +622,31 @@ class AutonomousHost:
             while not self._shutdown.is_set():
                 self._reap_finished()
                 capacity = self.config.max_concurrent_goals - len(self._active)
+                now = datetime.now(UTC)
+                if self._next_metabolic_tick is None or now >= self._next_metabolic_tick:
+                    claims = self.metabolism.tick(
+                        self.host_id,
+                        config=self.config.metabolic,
+                        lease_ttl_seconds=self.config.lease_ttl_seconds,
+                        capacity=capacity,
+                        now=now,
+                    )
+                    for claim in claims:
+                        self._active[claim.goal_id] = asyncio.create_task(
+                            self._run_claimed(claim), name=f"autonomous-goal:{claim.goal_id}"
+                        )
+                    capacity -= len(claims)
+                    if not self._active:
+                        MemoryRepository(self.store).reflect_terminal_goals()
+                        if self.config.metabolic.introspection_enabled:
+                            ExplorationService(self.store).propose_idle(
+                                self.host_id,
+                                self.config.exploration,
+                                now=now,
+                            )
+                    self._next_metabolic_tick = now + timedelta(
+                        seconds=self.config.metabolic.interval_seconds
+                    )
                 if capacity > 0:
                     for goal_id in self.repository.eligible_goal_ids(limit=capacity * 2):
                         if (
@@ -632,7 +691,12 @@ class AutonomousHost:
             self.host_id,
             process_id=self.process_id,
             stale_after_seconds=self.config.lease_ttl_seconds,
-            metadata={"maxConcurrentGoals": self.config.max_concurrent_goals},
+            metadata={
+                "maxConcurrentGoals": self.config.max_concurrent_goals,
+                "leaseTTLSeconds": self.config.lease_ttl_seconds,
+                "metabolic": self.config.metabolic.model_dump(),
+                "exploration": self.config.exploration.model_dump(),
+            },
         )
         self.repository.heartbeat_host(self.host_id, active_goal_count=0)
         self._registered = True
@@ -647,7 +711,7 @@ class AutonomousHost:
             if not isinstance(engine, AutonomousIterationEngine):
                 raise TypeError("engine_factory must return AutonomousIterationEngine")
             engine.set_ownership_guard(lambda: self.repository.assert_goal_lease(claim))
-            engine_task = asyncio.create_task(engine.run(claim.goal_id))
+            engine_task = asyncio.create_task(self._advance_claimed(engine, claim))
             while not engine_task.done():
                 done, _ = await asyncio.wait(
                     {engine_task},
@@ -688,6 +752,45 @@ class AutonomousHost:
                 error=str(redact_sensitive(str(error))) if error else None,
                 lost=lost,
             )
+
+    async def _advance_claimed(
+        self,
+        engine: AutonomousIterationEngine,
+        claim: GoalLeaseClaim,
+    ) -> dict[str, Any]:
+        self.repository.assert_goal_lease(claim)
+        goal = self.goals.get_goal(claim.goal_id)
+        if goal["wake_reason"] == "introspection":
+            # Persisted mode wins over restart configuration: never fall through into planning.
+            if not self.config.metabolic.introspection_enabled:
+                raise ValueError("introspection is disabled on this host")
+            iteration_id = await engine.inspect_once(claim.goal_id)
+            if iteration_id is not None:
+                self.metabolism.finish_inspection(claim, iteration_id)
+            return self.goals.get_goal(claim.goal_id)
+        interval = self.config.metabolic.iteration_sleep_seconds
+        if interval is None:
+            return await engine.run(claim.goal_id)
+        while True:
+            goal = await engine.run_once(claim.goal_id)
+            if goal["state"] not in {"created", "running"} or goal["wake_state"] == "sleeping":
+                return goal
+            with self.store.connect() as connection:
+                active = connection.execute(
+                    "SELECT 1 FROM autonomous_iterations WHERE goal_id=? "
+                    "AND state NOT IN ('completed','interrupted')",
+                    (claim.goal_id,),
+                ).fetchone()
+            if active is None:
+                self.metabolism.enter_sleep(
+                    claim.goal_id,
+                    SleepPolicy(
+                        wake_reason="timer",
+                        next_wake_at=utc_time(datetime.now(UTC) + timedelta(seconds=interval)),
+                    ),
+                    claim=claim,
+                )
+                return self.goals.get_goal(claim.goal_id)
 
     def _reap_finished(self) -> None:
         for goal_id, task in list(self._active.items()):

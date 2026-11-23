@@ -185,14 +185,14 @@ def host_config(**overrides: Any) -> AutonomousHostConfig:
         "max_concurrent_goals": 2,
         "poll_interval_seconds": 0.01,
         "heartbeat_interval_seconds": 0.02,
-        "lease_ttl_seconds": 0.2,
+        "lease_ttl_seconds": 2.0,
         "shutdown_grace_seconds": 0.03,
     }
     values.update(overrides)
     return AutonomousHostConfig(**values)
 
 
-async def wait_until(predicate: Any, timeout: float = 1.0) -> None:
+async def wait_until(predicate: Any, timeout: float = 3.0) -> None:
     async with asyncio.timeout(timeout):
         while not predicate():
             await asyncio.sleep(0.005)

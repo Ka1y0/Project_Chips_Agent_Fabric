@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "const": "authenticate",
+      "title": "Type",
+      "type": "string"
+    },
+    "token": {
+      "maxLength": 4096,
+      "title": "Token",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "token"
+  ],
+  "title": "StreamAuthentication",
+  "type": "object"
+}

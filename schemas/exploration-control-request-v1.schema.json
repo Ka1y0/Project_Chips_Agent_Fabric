@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "enum": [
+        "open",
+        "paused"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "expected_revision": {
+      "minimum": 0,
+      "title": "Expected Revision",
+      "type": "integer"
+    },
+    "reason": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "state",
+    "expected_revision",
+    "reason"
+  ],
+  "title": "ExplorationControlRequest",
+  "type": "object"
+}

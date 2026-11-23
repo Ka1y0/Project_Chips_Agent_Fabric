@@ -132,7 +132,8 @@ def _linux_birth(pid: int) -> str | None:
         return None
     fields_after_command = stat[end + 2 :].split()
     # /proc/<pid>/stat field 3 is index 0 here; process start ticks are field 22.
-    if len(fields_after_command) <= 19:
+    # Zombies retain PID/start ticks until their parent reaps them, but cannot execute work.
+    if len(fields_after_command) <= 19 or fields_after_command[0] in {"Z", "X", "x"}:
         return None
     return _hash_identity(f"linux:{boot_id}:{pid}:{fields_after_command[19]}")
 

@@ -18,6 +18,11 @@ stable implementation; **UNSUPPORTED** is deliberately excluded.
 | Windows Local Worker over private HTTPS | HOST-VERIFIED in V0 evidence | Local Worker v1 adapter |
 | Mac→PC Tailscale transport | HOST-VERIFIED V0 topology | deployment config; not core dependency |
 | Cyber Office real REST/WebSocket observation | HOST-VERIFIED V0 topology | generic projections |
+| Metabolic sleep/self-awakening | IMPLEMENTED; deterministic tests | `goal sleep`, `autonomous heartbeat`, host options |
+| Advisory memory/reflection and bounded context retrieval | IMPLEMENTED | `memory`, `/v1/memory` |
+| Opt-in read-only exploration with daily hard cap | IMPLEMENTED; mock execution | `exploration`, host options, `/v1/exploration` |
+| Packaged Cyber Office web design system | IMPLEMENTED; local browser acceptance | `/office/`; same-origin REST/WebSocket |
+| Authenticated node status/delegation envelope exchange | FOUNDATION; injected transport | `bridge/node_exchange.py`, `/v1/bridge` |
 | Portable discovery + deterministic dry-run plan | IMPLEMENTED FOUNDATION | `bootstrap/chips.py` |
 | Generated bootstrap review bundle | IMPLEMENTED FOUNDATION | `--emit --output-dir PATH` |
 | Restart-safe bootstrap lifecycle/audit recorder | IMPLEMENTED FOUNDATION | `--state-db`, `bootstrap-status`, result v1 contract |

@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "heartbeat-tick/v1",
+      "default": "heartbeat-tick/v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tick_id": {
+      "title": "Tick Id",
+      "type": "string"
+    },
+    "host_id": {
+      "title": "Host Id",
+      "type": "string"
+    },
+    "evaluated_at": {
+      "title": "Evaluated At",
+      "type": "string"
+    },
+    "trigger_source": {
+      "enum": [
+        "poll",
+        "manual"
+      ],
+      "title": "Trigger Source",
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "NOOP",
+        "WOKE"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    },
+    "goal_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Goal Id"
+    },
+    "lease_generation": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Lease Generation"
+    },
+    "wake_budget_used": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Wake Budget Used",
+      "type": "integer"
+    },
+    "inspection_budget_used": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Inspection Budget Used",
+      "type": "integer"
+    },
+    "local_model_calls": {
+      "const": 0,
+      "default": 0,
+      "title": "Local Model Calls",
+      "type": "integer"
+    },
+    "local_tokens": {
+      "const": 0,
+      "default": 0,
+      "title": "Local Tokens",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "tick_id",
+    "host_id",
+    "evaluated_at",
+    "trigger_source",
+    "result",
+    "reason",
+    "goal_id",
+    "lease_generation",
+    "wake_budget_used",
+    "inspection_budget_used"
+  ],
+  "title": "HeartbeatTick",
+  "type": "object"
+}

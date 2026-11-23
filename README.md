@@ -47,6 +47,13 @@ Initialize an isolated local Supervisor explicitly:
 No provider API key, subscription, or running model server is required for deterministic tests and
 mock-mode workflows.
 
+Cyber Office is available at `/office/` on the existing `project-supervisor ... serve` API
+(default `http://127.0.0.1:7330/office/`). Its packaged, dependency-free frontend observes heartbeats,
+Workers, advisory memory, quotas and derived node receipts. Human controls require explicit backend
+configuration and scoped authentication; the browser retains no authoritative state. See the
+[design system and browser acceptance](docs/DESIGN_SYSTEM.md),
+[host operations](docs/AUTONOMOUS_HOST.md), and [memory/exploration contracts](docs/MEMORY_EXPLORATION.md).
+
 On Windows PowerShell use `py -3.12 -m venv .venv` and executables under
 `.\.venv\Scripts\` (for example `.\.venv\Scripts\chips.exe bootstrap --redact-host --json`). Windows
 and Linux bootstrap discovery are contract-tested foundations; they are not yet real-host-verified

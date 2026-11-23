@@ -97,6 +97,50 @@ transient capacity condition, not a permanently blocked Task. The runtime journa
 `dispatchDeferred`, keeps the Task READY, waits on a capacity signal with bounded cross-process
 polling, and retries from a fresh snapshot. HARD PAUSE/STOP cancellation can wake this wait.
 
+## Isolated read-only trial
+
+From the repository root with the project installed in `.venv`, run:
+
+```sh
+.venv/bin/python scripts/observe_office.py
+```
+
+Open `http://127.0.0.1:7330/office/` after the first NOOP. This trial explicitly permits
+token-free loopback observation in a newly created directory. An ordinary API requires an
+`observe:read` bearer in **连接设置**. Human controls additionally require `goal:control` and
+an operator-enabled writable API.
+
+The script prints the private trial directory and retains it for inspection. It starts an empty
+database, one foreground host and one loopback API. Wake, inspection and exploration budgets are
+zero. No Worker or service is installed. Ctrl+C stops both processes. Use `--check` for a
+one-shot readiness test, `--port` for a different local port or `--data-dir` for a **new** path.
+An existing directory is refused. The empty Worker and memory panels reflect this database.
+
+### Authenticated operator access
+
+For a normal deployment, use an initialized data directory. In a private terminal, run:
+
+```sh
+printf 'Initialized Supervisor data directory: '
+IFS= read -r DATA_DIR
+PS=.venv/bin/project-supervisor
+"$PS" --data-dir "$DATA_DIR" token create --label office-read --scope observe:read --expires-in-hours 1
+"$PS" --data-dir "$DATA_DIR" serve
+```
+
+Paste the displayed token into **连接设置** at the Office URL above. The UI keeps it in memory.
+For human controls, an operator must explicitly set `read_only_api` to `false` in that directory's
+`config.json` and restart the API. Issue the combined read/control token in the same private
+terminal with the same `PS` and `DATA_DIR` variables:
+
+```sh
+"$PS" --data-dir "$DATA_DIR" token create --label office-control \
+  --scope observe:read --scope goal:control --expires-in-hours 1
+```
+
+The API receives the bearer via an Authorization header for REST and the authentication frame for
+WebSocket. Keep tokens out of URLs, shell arguments and shared output.
+
 ## Operator commands
 
 The following examples use an explicit, operator-owned state directory and project root. Replace the
@@ -216,7 +260,8 @@ use protocol casing, for example `goalID`, `taskID`, `workerID`, `accountScope`,
 When Goal mutation is explicitly enabled, the control routes are `POST /v1/goals`,
 `POST /v1/goals/{goal_id}/pause`, `POST /v1/goals/{goal_id}/resume`,
 `POST /v1/goals/{goal_id}/steer`, and `POST /v1/goals/{goal_id}/stop`. Observation requires the
-configured read authorization; Goal mutation additionally requires `goal:control`. Do not place a
+configured read authorization. The database-wide brake uses `POST /v1/exploration/control`.
+All control mutations additionally require `goal:control`. Do not place a
 bearer in documentation, a URL, source, events, or evidence.
 
 ## Related documents
@@ -225,3 +270,43 @@ bearer in documentation, a URL, source, events, or evidence.
 - [`RECOVERY.md`](RECOVERY.md) — canonical restart procedure
 - [`SCHEDULER.md`](SCHEDULER.md) — deterministic Hybrid Engine behavior
 - [`../SECURITY.md`](../SECURITY.md) — non-negotiable security boundaries
+
+## Metabolic heartbeat (local deterministic implementation)
+
+Migration 0014 keeps `wake_state` orthogonal to human Goal lifecycle state. Existing Goals default
+ to awake. Every local poll records NOOP/WOKE and zero local model calls/tokens; wake reservations
+are counted separately from actual Worker consumption in the existing telemetry/resource ledger.
+The ledger is append-only. A wake, generation claim, budget reservation and event commit together.
+Expired generations cannot renew. Sleep never overrides SOFT PAUSE, HARD PAUSE or STOP.
+
+Explicitly schedule an idle Goal (UTC timestamps use `Z`):
+
+```sh
+"$PS" --data-dir "$DATA_DIR" goal sleep example-goal \
+  --wake-reason timer --next-wake-at 2030-01-01T00:00:00Z
+"$PS" --data-dir "$DATA_DIR" autonomous serve \
+  --metabolic-interval-seconds 30 --max-daily-wakes 24 --wake-backoff-seconds 60
+"$PS" --data-dir "$DATA_DIR" --json autonomous heartbeat --goal example-goal
+```
+
+`--iteration-sleep-seconds SECONDS` optionally checkpoints ordinary work between completed
+iterations. It is disabled by default. `quotaCooldown` sleep requires `--worker`, `--quota-pool`
+and `--cooldown-until`; expiration alone never invents quota. Only fresh AVAILABLE/WARNING evidence
+from the existing QuotaGuard plus healthy canonical Worker/node state allows waking. `workerHealth`
+requires `--worker` and a change from the persisted baseline to healthy/idle canonical state.
+No heartbeat probes a provider, opens a socket or constructs an engine on NOOP.
+
+Periodic advisory inspection requires both a Goal sleep policy with `--wake-reason introspection`,
+`--next-wake-at`, `--inspection-interval-seconds` (at least 60), and host `--enable-introspection`.
+It reserves one of `--max-daily-inspections` (default 4) in addition to the daily wake budget.
+Limits are database-wide, evaluated by UTC day, and survive host restart; backoff is per Goal.
+Operators must use consistent limits across hosts sharing a database. Goal iteration/token/cost
+budgets remain enforced, including fail-closed unknown budget observations.
+
+Inspection uses one idempotent ProductionAutonomyDriver evaluation Task: RESEARCH/REVIEW, GREEN,
+SINGLE, code_write_required=False. It cannot plan actions or apply a model's proposed SUCCESS.
+Persisted mode prevents restart from falling through to unrestricted planning. The inspection
+checkpoint and next sleep commit atomically; existing Task/run recovery handles interrupted calls.
+Soft pause permits current work to finish; hard pause/stop request runtime cancellation. Adapter
+cancellation remains best-effort as in the existing runtime contract. No system service is installed,
+and REST defaults remain read-only and loopback.

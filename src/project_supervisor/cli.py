@@ -387,6 +387,69 @@ def _autonomous_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _evolution_status(args: argparse.Namespace) -> int:
+    from .api.projections import SupervisorProjection
+
+    projection = SupervisorProjection(StateStore(_load(args).database_path))
+    if args.command == "memory":
+        value = projection.memory(project_id=args.project, limit=args.limit)
+    elif args.command == "exploration":
+        value = projection.exploration()
+    else:
+        value = projection.bridge()
+    _emit(value, as_json=args.json)
+    return 0
+
+
+def _heartbeat_status(args: argparse.Namespace) -> int:
+    from .autonomy import GoalService
+    from .heartbeat import MetabolicHeartbeat
+
+    store = StateStore(_load(args).database_path)
+    goals = GoalService(store)
+    rows = [goals.get_goal(args.goal)] if args.goal else goals.list_goals()
+    _emit(
+        {
+            "goals": [
+                {
+                    key: row[key]
+                    for key in (
+                        "id",
+                        "state",
+                        "wake_state",
+                        "next_wake_at",
+                        "wake_reason",
+                        "cooldown_until",
+                        "last_self_wake_at",
+                    )
+                }
+                for row in rows
+            ],
+            "ticks": MetabolicHeartbeat(store).list_ticks(goal_id=args.goal, limit=args.limit),
+        },
+        as_json=args.json,
+    )
+    return 0
+
+
+def _goal_sleep(args: argparse.Namespace) -> int:
+    from .autonomy import GoalService
+    from .heartbeat import MetabolicHeartbeat, SleepPolicy
+
+    store = StateStore(_load(args).database_path)
+    policy = SleepPolicy(
+        wake_reason=args.wake_reason,
+        next_wake_at=args.next_wake_at,
+        cooldown_until=args.cooldown_until,
+        worker_id=args.worker,
+        quota_pool_id=args.quota_pool,
+        inspection_interval_seconds=args.inspection_interval_seconds,
+    )
+    MetabolicHeartbeat(store).enter_sleep(args.goal_id, policy)
+    _emit(GoalService(store).get_goal(args.goal_id), as_json=args.json)
+    return 0
+
+
 def _local_worker_tokens(endpoints: dict[str, str]) -> dict[str, str]:
     """Resolve Worker bearer credentials in memory without CLI token arguments."""
 
@@ -399,6 +462,8 @@ def _build_autonomous_host(args: argparse.Namespace):
     from .autonomous_host import AutonomousHost, AutonomousHostConfig
     from .autonomy import AutonomousIterationEngine, SupervisorRuntimeDispatcher
     from .autonomy_driver import ProductionAutonomyDriver, reconstruct_adapter_registry
+    from .exploration import ExplorationConfig
+    from .heartbeat import HeartbeatConfig
 
     config = _load(args)
     store = StateStore(config.database_path)
@@ -442,6 +507,19 @@ def _build_autonomous_host(args: argparse.Namespace):
                 heartbeat_interval_seconds=args.heartbeat_interval_seconds,
                 lease_ttl_seconds=args.lease_ttl_seconds,
                 shutdown_grace_seconds=args.shutdown_grace_seconds,
+                exploration=ExplorationConfig(
+                    enabled=args.enable_exploration,
+                    exploration_budget_cap=args.exploration_budget_cap,
+                    cooldown_seconds=args.exploration_cooldown_seconds,
+                ),
+                metabolic=HeartbeatConfig(
+                    interval_seconds=args.metabolic_interval_seconds,
+                    max_daily_wakes=args.max_daily_wakes,
+                    backoff_seconds=args.wake_backoff_seconds,
+                    iteration_sleep_seconds=args.iteration_sleep_seconds,
+                    introspection_enabled=args.enable_introspection,
+                    max_daily_inspections=args.max_daily_inspections,
+                ),
             ),
             host_id=args.host_id,
         ),
@@ -643,6 +721,20 @@ def build_parser() -> argparse.ArgumentParser:
     goal_stop.add_argument("--reason", required=True)
     goal_stop.set_defaults(handler=_goal_stop)
 
+    goal_sleep = goal_commands.add_parser("sleep", help="explicitly schedule an idle Goal")
+    goal_sleep.add_argument("goal_id")
+    goal_sleep.add_argument(
+        "--wake-reason",
+        required=True,
+        choices=["timer", "quotaCooldown", "workerHealth", "introspection"],
+    )
+    goal_sleep.add_argument("--next-wake-at", help="UTC timestamp ending in Z")
+    goal_sleep.add_argument("--cooldown-until", help="UTC timestamp ending in Z")
+    goal_sleep.add_argument("--worker")
+    goal_sleep.add_argument("--quota-pool")
+    goal_sleep.add_argument("--inspection-interval-seconds", type=float)
+    goal_sleep.set_defaults(handler=_goal_sleep)
+
     telemetry = subcommands.add_parser(
         "telemetry", help="show normalized Worker invocation telemetry"
     )
@@ -678,6 +770,15 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--heartbeat-interval-seconds", type=float, default=2.0)
         command.add_argument("--lease-ttl-seconds", type=float, default=10.0)
         command.add_argument("--shutdown-grace-seconds", type=float, default=10.0)
+        command.add_argument("--metabolic-interval-seconds", type=float, default=30.0)
+        command.add_argument("--max-daily-wakes", type=int, default=24)
+        command.add_argument("--wake-backoff-seconds", type=float, default=60.0)
+        command.add_argument("--iteration-sleep-seconds", type=float)
+        command.add_argument("--enable-introspection", action="store_true")
+        command.add_argument("--enable-exploration", action="store_true")
+        command.add_argument("--exploration-budget-cap", type=int, default=2)
+        command.add_argument("--exploration-cooldown-seconds", type=float, default=3600.0)
+        command.add_argument("--max-daily-inspections", type=int, default=4)
         command.add_argument(
             "--executable-override",
             action="append",
@@ -724,6 +825,17 @@ def build_parser() -> argparse.ArgumentParser:
     autonomous_status.add_argument("--host", help="filter by host ID")
     autonomous_status.add_argument("--goal", help="filter by Goal ID")
     autonomous_status.set_defaults(handler=_autonomous_status)
+
+    heartbeat = autonomous_commands.add_parser("heartbeat", help="read-only metabolic ledger")
+    heartbeat.add_argument("--goal")
+    heartbeat.add_argument("--limit", type=int, default=100)
+    heartbeat.set_defaults(handler=_heartbeat_status)
+
+    for name in ("memory", "exploration", "bridge"):
+        observation = subcommands.add_parser(name, help=f"read-only {name} projection")
+        observation.add_argument("--project")
+        observation.add_argument("--limit", type=int, default=100)
+        observation.set_defaults(handler=_evolution_status)
 
     serve = subcommands.add_parser(
         "serve",

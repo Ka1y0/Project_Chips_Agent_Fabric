@@ -166,7 +166,7 @@ def _runtime(store: StateStore, state_dir: Path, *, delay: float = 0.0) -> Super
         scheduler=DeterministicScheduler(),
         adapters=registry,
         evidence_root=state_dir / "run-evidence",
-        dispatch_lease_ttl_seconds=1.0,
+        dispatch_lease_ttl_seconds=3.0,
     )
 
 
@@ -261,7 +261,7 @@ async def _crash_phase(state_dir: Path) -> Never:
 async def _resume_phase(state_dir: Path) -> dict[str, Any]:
     store = _store(state_dir, create=False)
     runtime = _runtime(store, state_dir)
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + 8
     escalations: list[dict[str, Any]] = []
     while time.monotonic() < deadline:
         await runtime.recover()

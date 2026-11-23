@@ -58,6 +58,20 @@ other observers read
 projections; they do not become a second source of truth. Provider sessions and raw output remain
 provider-specific below the adapter boundary. Normalized state and events are committed to SQLite.
 
+The packaged Cyber Office web surface at `/office/` is **IMPLEMENTED** with same-origin projections,
+procedural Canvas art and a [design system](DESIGN_SYSTEM.md). Static assets contain no state or
+credentials and start no host or adapter. With explicit backend mutation configuration and a scoped
+bearer, human controls use the existing Goal APIs; only their SQLite receipts change displayed state.
+Browser credentials live in memory. WebSocket subprotocol `chips-observe-v1` authenticates in its
+first bounded frame before any snapshot; normal Authorization-header clients remain compatible.
+
+Metabolic timers and conditional wakes are serialized with generation-fenced leases and append-only
+tick reservations ([ADR 0003](adr/0003-metabolic-heartbeat.md)). Advisory memories, exploration budget
+reservations, and authenticated derived node receipts have separate SQLite tables
+([ADR 0004](adr/0004-advisory-memory-and-node-exchange.md)). Idle inspection/exploration is opt-in,
+GREEN, read-only, budgeted and subject to human controls. Bridge never enrolls a trust root or
+executes a received proposal. Real cross-node transport and codec deployment remain **FOUNDATION**.
+
 ## Runtime task flow
 
 ```mermaid

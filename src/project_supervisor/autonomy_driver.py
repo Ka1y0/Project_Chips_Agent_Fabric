@@ -6,7 +6,7 @@ import json
 import os
 import shutil
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Literal
 
@@ -42,6 +42,8 @@ from .domain import (
     TaskRequirements,
     TaskState,
 )
+from .exploration_control import read_control
+from .memory import MemoryRepository
 from .runtime import AdapterRegistry, SupervisorRuntime
 from .store import StateStore, compact_json, redact_sensitive, timestamp
 
@@ -278,6 +280,90 @@ class ProductionAutonomyDriver:
                 termination_reason=TerminationReason.HUMAN_ESCALATION,
             )
 
+    async def inspect(
+        self,
+        context: GoalContext,
+        *,
+        ownership_guard: Callable[[], None],
+    ) -> GoalEvaluation:
+        """Advisory-only evaluation through the same deterministic decision Task boundary."""
+
+        checkpoint = self._checkpoint(context, "evaluation")
+        task_id = self._task_id(checkpoint)
+
+        control_revision = None
+
+        def guard(*, allow_soft_pause: bool = False) -> None:
+            nonlocal control_revision
+            ownership_guard()
+            with self.store.connect() as connection:
+                goal = connection.execute(
+                    "SELECT state,wake_state,wake_reason,steer_version,origin "
+                    "FROM autonomous_goals WHERE id=?",
+                    (checkpoint.goal_id,),
+                ).fetchone()
+                if goal is not None and goal["origin"] == "exploration":
+                    control = read_control(connection)
+                    if control.state == "paused" or (
+                        control_revision is not None and control.revision != control_revision
+                    ):
+                        raise DecisionDriverError("inspection blocked by global exploration pause")
+                    control_revision = control.revision
+            allowed = {"created", "running"}
+            if allow_soft_pause:
+                allowed.add("softPaused")
+            if (
+                goal is None
+                or goal["state"] not in allowed
+                or goal["wake_state"] != "awake"
+                or goal["wake_reason"] != "introspection"
+                or goal["steer_version"] != checkpoint.steer_version
+            ):
+                raise DecisionDriverError("inspection blocked by canonical Goal control")
+
+        work: asyncio.Task[tuple[dict[str, Any], str]] | None = None
+        try:
+            guard()
+            work = asyncio.create_task(
+                self._decide(
+                    context,
+                    checkpoint,
+                    extra={},
+                    dispatch_guard=guard,
+                )
+            )
+            while not work.done():
+                await asyncio.wait({work}, timeout=0.02)
+                guard(allow_soft_pause=True)
+            value, output_hash = await work
+            decision = EvaluationDecision.model_validate(value)
+            self._require_binding(decision, checkpoint)
+            guard(allow_soft_pause=True)
+            self._accept_decision(checkpoint, output_hash)
+            return GoalEvaluation(
+                EvaluationDisposition(decision.disposition),
+                decision.summary,
+                decision.progress_fingerprint,
+                termination_reason=(
+                    TerminationReason(decision.termination_reason)
+                    if decision.termination_reason
+                    else None
+                ),
+                facts=_safe_object(decision.facts),
+            )
+        except BaseException:
+            # Cancel through the runtime, preserving its durable cancellation/adapter contract.
+            if work is not None and not work.done():
+                work.cancel()
+                await asyncio.gather(work, return_exceptions=True)
+            try:
+                self.store.get_task(task_id)
+            except KeyError:
+                pass
+            else:
+                await self.runtime.cancel_task(task_id)
+            raise
+
     async def plan(self, context: GoalContext, evaluation: GoalEvaluation) -> GoalPlan:
         checkpoint = self._checkpoint(context, "planning")
         try:
@@ -387,6 +473,7 @@ class ProductionAutonomyDriver:
         checkpoint: _DecisionCheckpoint,
         *,
         extra: dict[str, Any],
+        dispatch_guard: Callable[[], None] | None = None,
     ) -> tuple[dict[str, Any], str]:
         context_value = self._context_value(context)
         request = {
@@ -402,8 +489,10 @@ class ProductionAutonomyDriver:
         fingerprint = hashlib.sha256(request_json.encode()).hexdigest()
         task_id = self._task_id(checkpoint)
         prompt = self._prompt(checkpoint, request_json)
+        if dispatch_guard is not None:
+            dispatch_guard()
         await self._ensure_task(checkpoint, task_id, prompt, fingerprint)
-        output = await self._execute_task(task_id)
+        output = await self._execute_task(task_id, dispatch_guard=dispatch_guard)
         if len(output.encode()) > self.max_output_bytes:
             self._finish_binding(task_id, "rejected", None, "output exceeds byte limit")
             self._finish_task(task_id, accepted=False)
@@ -541,6 +630,13 @@ class ProductionAutonomyDriver:
             task = await asyncio.to_thread(self.store.get_task, task_id)
             if task["project_id"] != checkpoint.project_id:
                 raise DecisionDriverError("deterministic decision Task identity collision")
+            if (
+                task["permission_class"] != "green"
+                or task["code_write_required"] != 0
+                or set(json.loads(task["labels_json"])) != {"research", "review"}
+                or task["topology"] != "single"
+            ):
+                raise DecisionDriverError("decision Task no longer has read-only requirements")
         except KeyError:
             await self.runtime.submit_task(
                 project_id=checkpoint.project_id,
@@ -608,7 +704,12 @@ class ProductionAutonomyDriver:
                 if actual != expected:
                     raise DecisionDriverError("decision Task binding does not match its checkpoint")
 
-    async def _execute_task(self, task_id: str) -> str:
+    async def _execute_task(
+        self,
+        task_id: str,
+        *,
+        dispatch_guard: Callable[[], None] | None = None,
+    ) -> str:
         task = await asyncio.to_thread(self.store.get_task, task_id)
         if task["state"] in {
             TaskState.DRAFT.value,
@@ -622,7 +723,11 @@ class ProductionAutonomyDriver:
             await self.runtime.recover(task_ids=scope)
             while True:
                 await self.runtime.recover(task_ids=scope)
-                await self.runtime.dispatch_ready(task_ids=scope)
+                if dispatch_guard is not None:
+                    dispatch_guard()
+                    await self.runtime.dispatch_ready(task_ids=scope, dispatch_guard=dispatch_guard)
+                else:
+                    await self.runtime.dispatch_ready(task_ids=scope)
                 await self.runtime.wait_for_active(task_ids=scope)
                 task = await asyncio.to_thread(self.store.get_task, task_id)
                 if task["state"] not in {
@@ -730,6 +835,14 @@ class ProductionAutonomyDriver:
         decision_task_ids = self._decision_task_ids(context.goal["id"])
         return _safe_object(
             {
+                "longTermMemory": MemoryRepository(self.store)
+                .retrieve(
+                    project_id=context.goal["project_id"],
+                    query=context.goal["effective_intent"],
+                    exclude_goal_id=context.goal["id"],
+                    max_bytes=min(8192, self.max_context_bytes // 4),
+                )
+                .model_dump(by_alias=True),
                 "goal": {
                     key: context.goal.get(key)
                     for key in (
@@ -1115,6 +1228,7 @@ def _bounded_json(value: dict[str, Any], maximum_bytes: int) -> str:
     encoded = compact_json(safe)
     if len(encoded.encode()) <= maximum_bytes:
         return encoded
+    omitted_hash = hashlib.sha256(encoded.encode()).hexdigest()
     reduced = {
         "schemaVersion": value.get("schemaVersion"),
         "decisionType": value.get("decisionType"),
@@ -1122,6 +1236,8 @@ def _bounded_json(value: dict[str, Any], maximum_bytes: int) -> str:
         "iterationSequence": value.get("iterationSequence"),
         "steerVersion": value.get("steerVersion"),
         "context": {
+            "truncated": True,
+            "omittedContextSHA256": omitted_hash,
             "goal": _safe_object(value.get("context", {}).get("goal", {})),
             "project": _safe_object(value.get("context", {}).get("project", {})),
             "tasks": _safe_object(value.get("context", {}).get("tasks", [])[-8:]),
@@ -1135,11 +1251,10 @@ def _bounded_json(value: dict[str, Any], maximum_bytes: int) -> str:
             reduced[key] = _safe_object(value[key])
     encoded = compact_json(reduced)
     if len(encoded.encode()) > maximum_bytes:
-        digest = hashlib.sha256(encoded.encode()).hexdigest()
         reduced["context"] = {
             "goal": reduced["context"]["goal"],
             "truncated": True,
-            "omittedContextSHA256": digest,
+            "omittedContextSHA256": omitted_hash,
         }
         encoded = compact_json(reduced)
     if len(encoded.encode()) > maximum_bytes:

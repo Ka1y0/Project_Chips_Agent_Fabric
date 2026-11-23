@@ -612,7 +612,7 @@ class AutonomousIterationEngine:
     async def run(self, goal_id: str) -> dict[str, Any]:
         while True:
             goal = self.goals.get_goal(goal_id)
-            if goal["state"] in {
+            if goal["wake_state"] == "sleeping" or goal["state"] in {
                 GoalState.SOFT_PAUSED.value,
                 GoalState.HARD_PAUSED.value,
                 GoalState.STOPPED.value,
@@ -624,6 +624,10 @@ class AutonomousIterationEngine:
     async def run_once(self, goal_id: str) -> dict[str, Any]:
         self._assert_ownership()
         goal = self.goals.get_goal(goal_id)
+        if goal["wake_state"] == "sleeping":
+            return goal
+        if goal["origin"] == "exploration":
+            raise ValueError("exploration Goals may only use the read-only inspection path")
         if goal["state"] == GoalState.CREATED.value:
             self._start(goal_id)
             goal = self.goals.get_goal(goal_id)
@@ -638,6 +642,81 @@ class AutonomousIterationEngine:
             active = self._begin_iteration(goal_id)
         await self._advance_iteration(goal_id, active["id"])
         return self.goals.get_goal(goal_id)
+
+    async def inspect_once(self, goal_id: str) -> str | None:
+        """One advisory production evaluation; never plan, dispatch actions, or apply success."""
+
+        from .autonomy_driver import ProductionAutonomyDriver
+
+        if not isinstance(self.evaluator, ProductionAutonomyDriver):
+            raise TypeError("introspection requires ProductionAutonomyDriver")
+        self._assert_ownership()
+        goal = self.goals.get_goal(goal_id)
+        if goal["state"] not in {"created", "running"} or goal["wake_state"] != "awake":
+            return None
+        if goal["wake_reason"] != "introspection":
+            raise ValueError("Goal is not reserved for introspection")
+        self._start(goal_id)
+        active = self._active_iteration(goal_id)
+        if active is None:
+            guard = await self._budget_guard(goal)
+            self._assert_ownership()
+            if self._control_gate(goal_id):
+                return None
+            if guard is not None:
+                self._terminate(goal_id, guard[0], guard[1])
+                return None
+            self._start(goal_id)
+            active = self._begin_iteration(goal_id)
+        if active["state"] != "evaluating" or active["plan_json"] is not None:
+            raise ValueError("introspection cannot resume an action iteration")
+        if goal["origin"] == "exploration":
+            # An interrupted one-attempt exploration cannot spend again on resume.
+            with self.store.connect() as connection:
+                cancelled = connection.execute(
+                    "SELECT 1 FROM autonomy_decision_tasks d JOIN tasks t ON t.id=d.task_id "
+                    "WHERE d.iteration_id=? AND d.phase='evaluation' AND t.state='cancelled'",
+                    (active["id"],),
+                ).fetchone()
+            if cancelled:
+                self._terminate_phase_if_current(
+                    goal_id,
+                    active["id"],
+                    TerminationReason.BLOCKED,
+                    "Exploration evaluation was cancelled",
+                    expected_steer_version=goal["steer_version"],
+                    only_if_running=True,
+                )
+                return None
+        if active["evaluation_json"] is None:
+            context = self._context(goal_id)
+            evaluation = await self.evaluator.inspect(
+                context, ownership_guard=self._assert_ownership
+            )
+            self._assert_ownership()
+            # Unlike ordinary evaluation, advisory inspection cannot alter Goal progress/success.
+            with self.store.transaction() as connection:
+                self._assert_ownership()
+                connection.execute(
+                    "UPDATE autonomous_iterations SET evaluation_json=?,updated_at=? WHERE id=?",
+                    (
+                        compact_json(redact_sensitive(_evaluation_to_dict(evaluation))),
+                        timestamp(),
+                        active["id"],
+                    ),
+                )
+                self.store._append_event(
+                    connection,
+                    kind="goalIntrospectionEvaluated",
+                    severity=EventSeverity.INFO,
+                    entity_type="goalIteration",
+                    entity_id=active["id"],
+                    project_id=goal["project_id"],
+                    summary="Read-only advisory inspection recorded",
+                    payload={"goalID": goal_id, "disposition": evaluation.disposition.value},
+                    actor="heartbeat",
+                )
+        return str(active["id"])
 
     async def _advance_iteration(self, goal_id: str, iteration_id: str) -> None:
         iteration = self._get_iteration(iteration_id)
@@ -983,6 +1062,7 @@ class AutonomousIterationEngine:
         """Fence a restored phase checkpoint against guidance recorded after it."""
 
         with self.store.transaction() as connection:
+            self._assert_ownership()
             goal = GoalService._get_row(connection, goal_id)
             return not self._interrupt_stale_phase(
                 connection,
@@ -1208,6 +1288,7 @@ class AutonomousIterationEngine:
 
     def _start(self, goal_id: str) -> None:
         with self.store.transaction() as connection:
+            self._assert_ownership()
             goal = GoalService._get_row(connection, goal_id)
             if goal["state"] != GoalState.CREATED.value:
                 return
@@ -1231,6 +1312,7 @@ class AutonomousIterationEngine:
 
     def _begin_iteration(self, goal_id: str) -> dict[str, Any]:
         with self.store.transaction() as connection:
+            self._assert_ownership()
             goal = GoalService._get_row(connection, goal_id)
             sequence = int(goal["iteration_count"]) + 1
             iteration_id = f"iter-{uuid.uuid4()}"
@@ -1267,6 +1349,7 @@ class AutonomousIterationEngine:
     ) -> bool:
         iteration = self._get_iteration(iteration_id)
         with self.store.transaction() as connection:
+            self._assert_ownership()
             goal = GoalService._get_row(connection, iteration["goal_id"])
             if self._interrupt_stale_phase(connection, goal, iteration_id, expected_steer_version):
                 return False
@@ -1311,6 +1394,7 @@ class AutonomousIterationEngine:
             raise ValueError("planned action keys must be unique")
         safe = redact_sensitive(_plan_to_dict(plan))
         with self.store.transaction() as connection:
+            self._assert_ownership()
             goal = GoalService._get_row(connection, goal_id)
             if self._interrupt_stale_phase(connection, goal, iteration_id, expected_steer_version):
                 return False
@@ -1372,6 +1456,7 @@ class AutonomousIterationEngine:
         safe = redact_sensitive(_verification_to_dict(verification))
         safe["steerVersion"] = expected_steer_version
         with self.store.transaction() as connection:
+            self._assert_ownership()
             goal = GoalService._get_row(connection, iteration["goal_id"])
             if self._interrupt_stale_phase(connection, goal, iteration_id, expected_steer_version):
                 return False
@@ -1437,6 +1522,7 @@ class AutonomousIterationEngine:
         failures: int,
     ) -> None:
         with self.store.transaction() as connection:
+            self._assert_ownership()
             goal = GoalService._get_row(connection, goal_id)
             # Verification records a newer checkpoint but does not count a second no-progress
             # observation for this iteration. The next evaluation performs that comparison.
@@ -1469,6 +1555,7 @@ class AutonomousIterationEngine:
 
     def _terminate(self, goal_id: str, reason: TerminationReason, detail: str) -> dict[str, Any]:
         with self.store.transaction() as connection:
+            self._assert_ownership()
             goal = GoalService._get_row(connection, goal_id)
             if goal["state"] in {GoalState.TERMINATED.value, GoalState.STOPPED.value}:
                 return goal
@@ -1511,11 +1598,15 @@ class AutonomousIterationEngine:
         detail: str,
         *,
         expected_steer_version: int,
+        only_if_running: bool = False,
     ) -> bool:
         """Atomically fence a phase termination against a concurrent human steer."""
 
         with self.store.transaction() as connection:
+            self._assert_ownership()
             goal = GoalService._get_row(connection, goal_id)
+            if only_if_running and goal["state"] != GoalState.RUNNING.value:
+                return False
             if self._interrupt_stale_phase(connection, goal, iteration_id, expected_steer_version):
                 return False
             if goal["state"] in {GoalState.TERMINATED.value, GoalState.STOPPED.value}:
@@ -1572,6 +1663,7 @@ class AutonomousIterationEngine:
         """
 
         with self.store.transaction() as connection:
+            self._assert_ownership()
             goal = GoalService._get_row(connection, goal_id)
             now = timestamp()
             connection.execute(
@@ -1625,6 +1717,7 @@ class AutonomousIterationEngine:
 
     def _set_iteration_state(self, iteration_id: str, state: str) -> None:
         with self.store.transaction() as connection:
+            self._assert_ownership()
             connection.execute(
                 "UPDATE autonomous_iterations SET state=?,updated_at=? WHERE id=?",
                 (state, timestamp(), iteration_id),
@@ -1632,6 +1725,7 @@ class AutonomousIterationEngine:
 
     def _finish_iteration(self, iteration_id: str, state: str) -> None:
         with self.store.transaction() as connection:
+            self._assert_ownership()
             now = timestamp()
             connection.execute(
                 "UPDATE autonomous_iterations SET state=?,completed_at=?,updated_at=? WHERE id=?",
@@ -1648,6 +1742,7 @@ class AutonomousIterationEngine:
         error: str | None = None,
     ) -> None:
         with self.store.transaction() as connection:
+            self._assert_ownership()
             row = connection.execute(
                 "SELECT * FROM autonomous_actions WHERE id=?", (action_id,)
             ).fetchone()
@@ -1688,6 +1783,7 @@ class AutonomousIterationEngine:
 
     def _journal(self, goal_id: str, kind: str, summary: str, payload: dict[str, Any]) -> None:
         with self.store.transaction() as connection:
+            self._assert_ownership()
             goal = GoalService._get_row(connection, goal_id)
             self.store._append_event(
                 connection,

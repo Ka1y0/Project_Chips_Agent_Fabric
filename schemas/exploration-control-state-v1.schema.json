@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "state": {
+      "enum": [
+        "open",
+        "paused"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "revision": {
+      "minimum": 0,
+      "title": "Revision",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "state",
+    "revision"
+  ],
+  "title": "ExplorationControlState",
+  "type": "object"
+}

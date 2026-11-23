@@ -15,6 +15,12 @@ from project_supervisor.credentials import (
 SECRET = "test-only-placeholder-bearer"
 
 
+@pytest.fixture(autouse=True)
+def simulated_keychain_platform(monkeypatch) -> None:
+    # These are injected-runner unit tests of the macOS Keychain contract on every host OS.
+    monkeypatch.setattr("project_supervisor.credentials.sys.platform", "darwin")
+
+
 def completed(
     command: Sequence[str], *, returncode: int = 0, stdout: str = ""
 ) -> subprocess.CompletedProcess[str]:

@@ -12,6 +12,11 @@
     "generatedTasks", "latestVerifier"
   ],
   "properties": {
+    "wakeState": {"enum": ["awake", "sleeping"]},
+    "nextWakeAt": {"type": ["string", "null"], "format": "date-time"},
+    "wakeReason": {"enum": ["timer", "quotaCooldown", "workerHealth", "introspection", null]},
+    "cooldownUntil": {"type": ["string", "null"], "format": "date-time"},
+    "origin": {"enum": ["human", "exploration"]},
     "id": {"type": "string", "minLength": 1},
     "projectID": {"type": "string", "minLength": 1},
     "intent": {"type": "string", "minLength": 1},
