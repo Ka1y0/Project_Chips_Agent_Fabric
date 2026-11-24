@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>Cyber Office · 神殿总览</title>
+<title>Cyber Office · 01 生物监测</title>
 <link rel="icon" href="./mark.svg" type="image/svg+xml">
 <link rel="stylesheet" href="./tokens.css">
 <link rel="stylesheet" href="./office.css">
@@ -13,140 +13,139 @@
 </head>
 <body>
 <a class="skip" href="#main">跳至主要内容</a>
-<aside class="rail">
-<a class="brand" href="#overview" aria-label="Cyber Office 总览">
-<svg viewBox="0 0 24 24" aria-hidden="true">
-<path d="M1 1h5v5H1zm8 0h5v5H9zm8 0h5v5h-5zM1 9h5v5H1zm8 0h5v5H9zm8 0h5v5h-5zM1 17h5v5H1zm8 0h5v5H9zm8 0h5v5h-5z"/>
-</svg>
-<span>CYBER<br> OFFICE</span>
-</a>
-<nav aria-label="主要导航">
-<a class="selected" href="#overview">
-<span>01</span>神殿总览</a>
-<a href="#workers-section">
-<span>02</span>认知星图</a>
-<a href="#memory-section">
-<span>03</span>记忆圣殿</a>
-<a href="#controls-section">
-<span>04</span>神谕控制台</a>
-</nav>
-<div class="rail-foot">
-<span class="small-cross">✧</span>
-<p>LOCAL FIRST<br>HUMAN OVERSIGHT</p>
-<p id="authority-mode">只读观测</p>
-</div>
-</aside>
-<header class="topbar">
-<span>Project Chips Agent Fabric</span>
-<div class="connection">
-<span class="dot" id="connection-dot">
-</span>
-<span id="connection-state" role="status">等待连接</span>
-<button id="connect-open" class="quiet">连接设置</button>
-<button id="refresh" class="quiet" aria-label="刷新后端状态">刷新 ↻</button>
-</div>
+<header class="masthead">
+  <div class="masthead-inner">
+    <a class="brand" href="#overview" aria-label="Cyber Office 生物监测">
+      <img src="./mark.svg" alt="" width="34" height="34">
+      <span lang="en">Cyber Office</span>
+    </a>
+    <nav aria-label="主要导航">
+      <a class="selected" href="#overview" aria-current="location"><span>01 生物监测</span><small lang="en">BIOMONITOR · RELIC</small></a>
+      <a href="#workers-section"><span>02 魔偶阵列</span><small lang="en">DAEMONS · CYBERDECK</small></a>
+      <a href="#memory-section"><span>03 分离芯片</span><small lang="en">SHARDS · DATABASE</small></a>
+      <a href="#controls-section"><span>04 入侵协议</span><small lang="en">BREACH PROTOCOL · ICE</small></a>
+    </nav>
+    <div class="connection">
+      <span class="dot" id="connection-dot" aria-hidden="true"></span>
+      <span id="connection-state" role="status">等待连接</span>
+      <button id="connect-open" class="settings">
+        <svg viewBox="0 0 18 18" aria-hidden="true"><path d="m7 5 2-2a3 3 0 0 1 4 4l-3 3m1 3-2 2a3 3 0 0 1-4-4l3-3m-1 3 4-4"/></svg>
+        连接设置
+      </button>
+    </div>
+    <small class="spec-code">ARASAKA-SPEC // LOOPBACK</small>
+  </div>
 </header>
 <main id="main">
 <section id="overview" aria-labelledby="overview-title">
-<div class="section-heading">
-<div>
-<h1 id="overview-title">神殿总览</h1>
-<p class="overline">AUTONOMOUS SYSTEMS · HUMAN OVERSIGHT</p>
-</div>
-<div class="timestamp">
-<time id="clock">
-</time>
-<span id="last-updated">尚未取得后端投影</span>
-</div>
-</div>
-<div id="notice" class="notice" role="status">正在读取本地 Supervisor…</div>
-<div class="golden-grid">
-<article class="metabolic panel">
-<div class="metabolic-copy">
-<h2>代谢中枢</h2>
-<p class="overline">LOCAL / ZERO-TOKEN CHECK</p>
-<dl class="metrics">
-<div>
-<dd id="host-count">—</dd>
-<dt>HOSTS / 存活</dt>
-</div>
-<div>
-<dd id="goal-count">—</dd>
-<dt>GOALS / 活动</dt>
-</div>
-<div>
-<dd id="wake-count">—</dd>
-<dt>WOKE / 窗口唤醒</dt>
-</div>
-</dl>
-<div class="trace-heading">
-<span>两段式心跳</span>
-<span class="legend">
-<i class="noop">
-</i> NOOP <i class="woke">
-</i> WOKE</span>
-</div>
-<svg id="heartbeat-trace" viewBox="0 0 440 72" role="img" aria-label="暂无心跳记录">
-</svg>
-<p class="mono wake-line">下一次唤醒 <strong id="next-wake">未报告</strong>
-</p>
-</div>
-<div class="sculpture">
-<canvas id="sculpture" width="320" height="340" aria-label="程序化大理石雕塑与点阵素描" role="img">
-</canvas>
-<span class="art-caption">I. CONTEMPLATION</span>
-</div>
-</article>
-<article class="panel budget">
-<div class="heading-inline">
-<h2>预算天平</h2>
-<span class="section-number">Ⅱ</span>
-</div>
-<p class="overline">自发探索 / UTC DAILY CAP</p>
-<div class="budget-reading">
-<strong id="exploration-used">—</strong>
-<span>/ <span id="exploration-cap">—</span> 次</span>
-</div>
-<meter id="exploration-meter" min="0" max="1" value="0" aria-label="每日探索预算消耗" hidden>
-</meter>
-<p id="exploration-status" class="muted">等待宿主策略</p>
-<div id="quota-summary" class="quota-list">
-</div>
-<a class="text-link" href="#controls-section">查看控制台 <span aria-hidden="true">→</span>
-</a>
-</article>
-</div>
-<div id="hosts" class="host-strip" aria-label="宿主状态">
-</div>
+  <div class="section-heading overview-heading">
+    <div class="bilingual"><h1 id="overview-title">01 生物监测</h1><i lang="en">BIOMONITOR · RELIC</i></div>
+    <span class="heading-rule" aria-hidden="true"></span>
+    <div class="sync">
+      <span id="last-updated">尚未取得后端投影</span>
+      <button id="refresh" class="quiet" aria-label="刷新后端状态" title="刷新后端状态">
+        <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M14.5 7a5.6 5.6 0 1 0-.9 6M15 3v4.5h-4.5"/></svg>
+      </button>
+    </div>
+  </div>
+  <div id="notice" class="notice" role="status">正在读取本地 Supervisor…</div>
+  <div class="golden-grid">
+    <article class="plate metabolic" data-spec="RELIC // 01">
+      <div class="metabolic-top">
+        <figure class="portrait">
+          <canvas id="sculpture" width="400" height="400" aria-hidden="true"></canvas>
+          <span class="scan-field" aria-hidden="true"><img class="reticle" src="./reticle.svg" alt=""><i class="upload-ring"></i></span>
+          <figcaption>ENGRAM · 01 // 愚者</figcaption>
+        </figure>
+        <div class="metabolic-copy">
+          <div class="bilingual plate-heading"><h2>Relic 脉搏</h2><i lang="en">LOCAL · ZERO-TOKEN PING</i></div>
+          <dl class="metrics">
+            <div><dt>存活宿主</dt><dd id="host-count">—</dd></div>
+            <div><dt>活动 Goal</dt><dd id="goal-count">—</dd></div>
+            <div><dt title="本次后端投影窗口中的 WOKE 次数">窗口唤醒</dt><dd id="wake-count">—</dd></div>
+          </dl>
+          <div class="wake-line">
+            <svg viewBox="0 0 22 22" aria-hidden="true"><path d="M5 2h12M5 20h12M7 2c0 5 1 6 4 9 3 3 4 4 4 9M15 2c0 5-1 6-4 9-3 3-4 4-4 9m2-14h4m-5 12 3-3 3 3Z"/></svg>
+            <div><span>下一次唤醒</span><strong id="next-wake">未报告</strong></div>
+          </div>
+        </div>
+      </div>
+      <figure class="trace">
+        <figcaption class="instrument-heading">
+          <span>两段式心跳</span>
+          <span class="legend"><i class="noop"></i> 静默 (PING) <i class="woke"></i> 唤醒 (UPLOAD)</span>
+        </figcaption>
+        <div class="plot">
+          <div class="plot-y" aria-hidden="true"><span>UPLOAD</span><span>PING</span></div>
+          <svg id="heartbeat-trace" viewBox="0 0 600 58" preserveAspectRatio="none" role="img" aria-label="暂无心跳记录">
+            <defs>
+              <pattern id="chart-grid" width="25" height="12" patternUnits="userSpaceOnUse">
+                <path d="M25 0H0V12" class="grid-lines"/>
+              </pattern>
+            </defs>
+            <rect width="600" height="58" fill="url(#chart-grid)"/>
+            <g id="heartbeat-marks"></g>
+          </svg>
+        </div>
+        <div class="plot-x"><span id="tick-start">—</span><span>巡检序号</span><span id="tick-end">—</span></div>
+      </figure>
+    </article>
+    <article class="plate budget" data-spec="RAM // 02">
+      <div class="bilingual plate-heading"><h2>内存与黑墙</h2><i lang="en">RAM · BLACKWALL QUOTA</i></div>
+      <div class="budget-reading">
+        <div><strong id="exploration-used">—</strong><span class="denominator"> / <b id="exploration-cap">—</b> 次</span></div>
+        <span class="reading-label">探索预留 <b>UTC / DAY</b></span>
+      </div>
+      <div class="budget-scale">
+        <meter id="exploration-meter" class="sr-only" min="0" max="1" value="0" aria-label="每日探索预算消耗" hidden></meter>
+        <svg class="segment-ruler" viewBox="0 0 300 11" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <pattern id="segment-dots" width="10" height="11" patternUnits="userSpaceOnUse">
+              <path d="M0 1h2m1 0h2m1 0h2M0 5h2m1 0h2m1 0h2M0 9h2m1 0h2m1 0h2" stroke="white" stroke-width="2"/>
+            </pattern>
+            <mask id="dot-mask"><rect width="300" height="11" fill="url(#segment-dots)"/></mask>
+          </defs>
+          <g mask="url(#dot-mask)"><rect class="meter-track" width="300" height="11"/><rect id="budget-fill" width="0" height="11"/></g>
+        </svg>
+        <div class="axis" aria-hidden="true"><span>0%</span><span>25</span><span>50</span><span>75</span><span>100%</span></div>
+      </div>
+      <p id="exploration-status" class="muted">等待宿主策略</p>
+      <div class="quota-block">
+        <div class="instrument-heading"><span>QuotaGuard</span><small>配额池状态</small></div>
+        <dl id="quota-matrix" aria-label="最近快照中各状态的配额池数"></dl>
+        <div id="quota-summary" class="quota-list"></div>
+      </div>
+      <div class="cooldown">
+        <div class="instrument-heading"><span>探索冷却 <i lang="en">Cooldown</i></span><span id="cooldown-reading">未报告</span></div>
+        <svg class="cooldown-scale" viewBox="0 0 300 10" preserveAspectRatio="none" aria-hidden="true">
+          <defs><pattern id="cooldown-ticks" width="10" height="10" patternUnits="userSpaceOnUse"><path d="M.5 3v6" class="scale-tick"/></pattern></defs>
+          <path d="M0 2H300" class="scale-tick"/><rect width="300" height="10" fill="url(#cooldown-ticks)"/>
+          <path id="cooldown-needle" d="M0 0v10" visibility="hidden"/>
+        </svg>
+        <div class="axis"><span>0 s</span><span id="cooldown-range">—</span></div>
+      </div>
+    </article>
+  </div>
+  <div id="hosts" class="host-strip" aria-label="宿主与工作流状态"></div>
 </section>
 <section id="workers-section" aria-labelledby="workers-title">
-<div class="section-heading compact">
-<div>
-<h2 id="workers-title">点阵认知星图</h2>
-<p class="overline">WORKER FABRIC / CANONICAL TELEMETRY</p>
-</div>
-<label class="filter">健康筛选 <select id="worker-filter">
-<option value="all">全部 Worker</option>
-<option value="idle">空闲</option>
-<option value="running">运行中</option>
-<option value="offline">离线 / 失败</option>
-</select>
-</label>
-</div>
-<div id="workers" class="worker-grid">
-<p class="empty">尚无 Worker 投影。</p>
-</div>
+  <div class="section-heading compact">
+    <div class="bilingual"><h2 id="workers-title">02 魔偶阵列</h2><i lang="en">DAEMONS · CYBERDECK</i></div>
+    <span class="heading-rule" aria-hidden="true"></span>
+    <label class="filter">健康筛选 <select id="worker-filter">
+      <option value="all">全部 Worker</option><option value="idle">空闲</option>
+      <option value="running">运行中</option><option value="offline">离线 / 失败</option>
+    </select></label>
+  </div>
+  <div id="workers" class="worker-grid"><p class="empty">尚无 Worker 投影。</p></div>
 </section>
 <div class="golden-grid bottom-grid">
-<section id="memory-section" aria-labelledby="memory-title">
-<div class="section-heading compact">
-<h2 id="memory-title">记忆圣殿</h2>
-<span class="overline">SOURCE / SHA-256</span>
-</div>
+<section id="memory-section" class="plate ledger" aria-labelledby="memory-title">
+<div class="bilingual plate-heading"><h2 id="memory-title">03 分离芯片</h2><i lang="en">SHARDS · DATABASE</i></div>
 <div class="tabs" role="tablist" aria-label="记忆与事件">
 <button role="tab" id="memory-tab" aria-selected="true" aria-controls="memory-feed" data-tab="memory">长期记忆</button>
 <button role="tab" id="reflection-tab" aria-selected="false" aria-controls="reflection-feed" data-tab="reflection">反思摘要</button>
-<button role="tab" id="events-tab" aria-selected="false" aria-controls="events-feed" data-tab="events">事件碑文</button>
+<button role="tab" id="events-tab" aria-selected="false" aria-controls="events-feed" data-tab="events">事件日志</button>
 </div>
 <div id="memory-feed" class="feed" role="tabpanel" aria-labelledby="memory-tab">
 </div>
@@ -155,24 +154,24 @@
 <div id="events-feed" class="feed" role="tabpanel" aria-labelledby="events-tab" hidden>
 </div>
 </section>
-<section id="controls-section" class="controls" aria-labelledby="controls-title">
-<div class="section-heading compact">
-<h2 id="controls-title">神谕控制台</h2>
-<span class="section-number">Ⅳ</span>
+<section id="controls-section" class="plate controls" aria-labelledby="controls-title">
+<div class="console-heading">
+  <div class="bilingual plate-heading"><h2 id="controls-title">04 入侵协议</h2><i lang="en">BREACH PROTOCOL · ICE</i></div>
+  <span id="authority-mode" class="muted">只读观测</span>
 </div>
 <p id="exploration-control-state" class="mono muted">全局探索状态待确认</p>
-<button id="exploration-toggle" disabled>暂停全局探索</button>
+<button id="exploration-toggle" class="danger-outline" disabled>黑墙封锁（禁止自主漫游）</button>
 <label for="goal-select">目标 Goal · 仅作用于所选目标</label>
 <select id="goal-select">
 <option value="">选择 Goal</option>
 </select>
 <p id="goal-detail" class="mono muted">所有控制以 SQLite 回执为准。</p>
 <div class="control-grid">
-<button data-action="soft" disabled>SOFT PAUSE</button>
-<button class="danger-outline" data-action="hard" disabled>HARD PAUSE</button>
-<button data-action="resume" disabled>RESUME</button>
-<button data-action="steer" disabled>STEER</button>
-<button class="danger stop" data-action="stop" disabled>STOP · 紧急制动</button>
+<button data-action="soft" disabled>挂起队列</button>
+<button class="danger-outline" data-action="hard" disabled>系统重置</button>
+<button data-action="resume" disabled>重新接驳</button>
+<button data-action="steer" disabled>注入魔偶</button>
+<button class="danger stop" data-action="stop" disabled>强制断连</button>
 </div>
 <p id="control-policy" class="muted">默认只读。控制需要后端开启并授权。</p>
 <output id="receipt" aria-live="polite" class="receipt">
@@ -182,19 +181,19 @@
 <section class="bridge-section" aria-labelledby="bridge-title">
 <div class="section-heading compact">
 <h2 id="bridge-title">跨节点回声</h2>
-<span class="overline">BRIDGE / DERIVED ONLY</span>
+<span class="heading-rule" aria-hidden="true"></span><small>BRIDGE / 只读通告</small>
 </div>
 <div id="bridge-feed" class="bridge-feed">
 </div>
 </section>
 <footer>
 <span>CYBER OFFICE <span class="sep">/</span> CHIPS AGENT FABRIC</span>
-<span>观测有据，行动有界。</span>
+
 </footer>
 </main>
-<dialog id="connect-dialog">
+<dialog id="connect-dialog" data-spec="LINK // AUTH" aria-labelledby="connect-title">
 <form id="connect-form">
-<h2>连接本地 Supervisor</h2>
+<h2 id="connect-title">连接本地 Supervisor</h2>
 <p>仅连接当前同源服务。令牌在页面关闭或刷新后清除。</p>
 <label for="bearer">访问令牌（仅内存）</label>
 <input id="bearer" type="password" autocomplete="off" spellcheck="false" placeholder="observe:read / goal:control" maxlength="4096">
@@ -205,7 +204,7 @@
 </div>
 </form>
 </dialog>
-<dialog id="control-dialog">
+<dialog id="control-dialog" data-spec="ICE // CONTROL" aria-labelledby="confirm-title">
 <form id="control-form">
 <h2 id="confirm-title">确认控制</h2>
 <p id="confirm-description">

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120" fill="none">
+  <defs>
+    <g id="engraving" stroke-linejoin="round" stroke-linecap="round">
+      <path stroke="#98959b" d="M1 37V1h36M5 30V13c4-1 7-4 8-8h17"/>
+      <path stroke="#67646a" d="M4 37V22c0-6 8-6 7-12s6-6 11-6h15M2 2l16 16"/>
+      <path stroke="#cccad0" d="M3 24c0-6 6-9 8-12 3-4 7-7 12-8M8 16c5 1 8-1 9-5-4 0-7 2-9 5Zm8-8c1 5-1 8-5 9 0-4 2-7 5-9Z"/>
+      <path stroke="#9b989c" d="M5 4c7 0 3 5 0 3 1-1 1-2 0-3Zm14 15 3-1-1 3ZM29 2v4m-2-2h4"/>
+      <path fill="#e7e5e1" d="m2 0 2 2-2 2-2-2Z"/>
+    </g>
+  </defs>
+  <use href="#engraving"/><use href="#engraving" transform="rotate(90 60 60)"/>
+  <use href="#engraving" transform="rotate(180 60 60)"/><use href="#engraving" transform="rotate(270 60 60)"/>
+</svg>

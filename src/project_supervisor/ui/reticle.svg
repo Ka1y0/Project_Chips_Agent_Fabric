@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" fill="none">
+  <circle cx="120" cy="120" r="111" stroke="#C6C5CA" opacity=".55" stroke-dasharray="1 8" vector-effect="non-scaling-stroke"/>
+  <circle cx="120" cy="120" r="106" stroke="#D92323" opacity=".8" stroke-dasharray="51 115.5" transform="rotate(-14 120 120)" vector-effect="non-scaling-stroke"/>
+  <path d="M120 4v11m0 210v11M4 120h11m210 0h11" stroke="#ECEAE4" vector-effect="non-scaling-stroke"/>
+</svg>

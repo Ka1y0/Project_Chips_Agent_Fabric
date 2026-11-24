@@ -1,16 +1,8 @@
-import { drawSculpture } from './art.js';
+import { BREATH_MS, mountPortrait } from './art.js';
+import { $, list, node, svg, time } from './dom.js';
+import { drawTrace, duration, renderBudget, updateCooldown } from './instruments.js';
 
-const $ = id => document.getElementById(id);
-const list = value => Array.isArray(value) ? value : [];
-const node = (tag, text = '', className = '') => {
-  const element = document.createElement(tag);
-  element.textContent = text;
-  if (className) element.className = className;
-  return element;
-};
 const terminal = new Set(['terminated', 'stopped']);
-const time = value => value && Number.isFinite(Date.parse(value))
-  ? new Date(value).toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC') : '未报告';
 const empty = (target, message) => $(target).replaceChildren(node('p', message, 'empty'));
 const routes = {
   capabilities: '/v1/capabilities', goals: '/v1/goals', workers: '/v1/workers',
@@ -32,6 +24,7 @@ let streamTimer = null;
 let pending = false;
 let proposed = null;
 let cursor = 0;
+let quotaExpiresAt = Infinity;
 
 async function request(path, { method = 'GET', body, signal } = {}) {
   const response = await fetch(path, {
@@ -53,7 +46,7 @@ function notice(message, error = false) {
 }
 function connection() {
   const live = healthy && socket?.readyState === WebSocket.OPEN;
-  $('connection-state').textContent = healthy ? (live ? '实时投影 · 已连接' : 'REST 轮询 · 已连接') : '未连接 / 投影不可用';
+  $('connection-state').textContent = healthy ? (live ? '神经链路 · 已接驳' : 'REST 轮询 · 已连接') : '未连接 / 投影不可用';
   $('connection-dot').classList.toggle('live', healthy);
 }
 async function refresh() {
@@ -146,83 +139,95 @@ function renderOverview() {
     const key = goal.wakeState === 'sleeping' && !terminal.has(goal.state) ? `${goal.state}·sleeping` : goal.state;
     counts.set(key, (counts.get(key) || 0) + 1); return counts;
   }, new Map());
-  $('hosts').append(node('span', `WORKFLOW / ${[...workflow].map(([key, count]) => `${key} ${count}`).join(' · ') || '无 Goal'}`));
-  const svg = $('heartbeat-trace');
-  svg.replaceChildren();
-  const part = (tag, attributes) => {
-    const item = document.createElementNS('http://www.w3.org/2000/svg', tag);
-    for (const [key, value] of Object.entries(attributes)) item.setAttribute(key, value);
-    svg.append(item); return item;
-  };
-  part('path', { d: 'M0 52H440', stroke: '#34352F', fill: 'none' });
-  ticks.slice(0, 48).reverse().forEach((tick, index, window) => {
-    const x = (index + .5) * 440 / window.length;
-    const woke = tick.result === 'WOKE';
-    const mark = part('path', { d: woke ? `M${x-4} 52l2 -9l2 -28l2 28l2 9` : `M${x-1} 50h2v3h-2z`,
-      stroke: woke ? '#C8A253' : '#3D6B8E', fill: woke ? 'none' : '#3D6B8E', 'stroke-width': '1.2' });
-    const title = document.createElementNS(svg.namespaceURI, 'title');
-    title.textContent = `${tick.result} / ${time(tick.evaluated_at)} / ${tick.reason}`;
-    mark.append(title);
-  });
-  svg.setAttribute('aria-label', ticks.length ? `最近 ${ticks.length} 次检查中 ${ticks.filter(t => t.result === 'WOKE').length} 次唤醒；图中显示最近 48 次` : '暂无心跳记录');
+  $('hosts').append(node('span', `WORKFLOW / ${[...workflow].map(([key, count]) => `${key} ${count}`).join(' · ') || (data.goals ? '无 Goal' : '未报告')}`));
+  drawTrace(data.heartbeat?.ticks);
   countdown();
 }
+
 function countdown() {
-  $('clock').textContent = time(new Date().toISOString());
+  const now = Date.now();
+  if (now >= quotaExpiresAt) quotaExpiresAt = renderBudget(data.exploration, data.resources);
+  updateCooldown(data.exploration, now);
+  const ticks = data.heartbeat?.ticks;
+  const tick = ticks?.[0];
+  const host = list(data.hosts).find(h => hostLive(h) && (tick ? h.hostID === tick.host_id : h.activeGoalCount > 0));
+  if (healthy && Array.isArray(ticks) && host && (!tick || tick.result === 'WOKE')) {
+    const start = Date.parse(tick ? tick.evaluated_at : host.startedAt);
+    const expiry = Date.parse(host.heartbeatAt) + host.metadata.leaseTTLSeconds * 1000;
+    const end = host.activeGoalCount > 0 ? expiry : Math.min(expiry, start + BREATH_MS);
+    if (start <= now && now < end) setPortraitMotion(start, end, tick?.result === 'WOKE' && now - start < BREATH_MS ? tick.sequence : null);
+    else setPortraitMotion(0, 0);
+  } else {
+    // In particular, an observed NOOP always stops the grains, even on a busy host.
+    setPortraitMotion(0, 0);
+  }
+
   const sleepers = list(data.goals).filter(g => g.wakeState === 'sleeping' && !terminal.has(g.state));
-  const due = sleepers.filter(g => !['softPaused', 'hardPaused'].includes(g.state) && g.nextWakeAt && Number.isFinite(Date.parse(g.nextWakeAt)))
+  const due = sleepers.filter(g => !['softPaused', 'hardPaused'].includes(g.state) && Number.isFinite(Date.parse(g.nextWakeAt)))
     .sort((a, b) => Date.parse(a.nextWakeAt) - Date.parse(b.nextWakeAt));
   const goal = due[0];
-  if (!goal) { $('next-wake').textContent = sleepers.length ? '等待条件 / 人类控制' : '未安排'; return; }
-  const seconds = Math.max(0, Math.ceil((Date.parse(goal.nextWakeAt) - Date.now()) / 1000));
-  $('next-wake').textContent = seconds ? `${String(Math.floor(seconds / 3600)).padStart(2,'0')}:${String(Math.floor(seconds / 60) % 60).padStart(2,'0')}:${String(seconds % 60).padStart(2,'0')}` : '已到期 · 等待巡检裁决';
-  $('next-wake').title = `${goal.id} / ${time(goal.nextWakeAt)}`;
-}
-function renderBudget() {
-  const budget = data.exploration;
-  $('exploration-used').textContent = Number.isSafeInteger(budget?.usedToday) ? String(budget.usedToday) : '—';
-  const policies = list(budget?.policies).filter(p => p.policy?.enabled);
-  const caps = new Set(policies.map(p => p.policy.exploration_budget_cap));
-  const cap = caps.size === 1 ? [...caps][0] : null;
-  $('exploration-cap').textContent = cap ?? '—';
-  $('exploration-meter').hidden = !(cap > 0);
-  if (cap > 0) { $('exploration-meter').max = cap; $('exploration-meter').value = budget.usedToday; }
-  const brakes = list(budget?.humanBrakes);
-  $('exploration-status').textContent = !budget ? '探索预算不可用' : budget.globalControl?.state === 'paused' ? '全局探索已暂停' : brakes.length ? `人类制动生效 · ${brakes.length} 个 Goal` : !policies.length ? '自发探索未启用' : caps.size > 1 ? '宿主限额不同 · 由各宿主裁决' : budget.usedToday >= cap ? '每日硬性上限已达 · 探索抑制' : `已预留只读评估次数 · ${budget.utcDay} UTC`;
-  const pools = new Map();
-  for (const item of list(data.resources).sort((a,b) => Date.parse(b.observedAt) - Date.parse(a.observedAt))) {
-    const key = item.quotaPoolID || item.workerID || item.provider;
-    if (!pools.has(key)) pools.set(key, item);
+  const reading = $('next-wake');
+  if (!goal) {
+    reading.textContent = !data.goals ? '未报告' : sleepers.length ? '等待条件 / 人类控制' : '未安排';
+    reading.removeAttribute('title');
+    return;
   }
-  $('quota-summary').replaceChildren(...[...pools.values()].map(item => {
-    const row = node('div', '', 'quota-row');
-    const used = item.used?.state === 'known' ? `${item.used.value} ${item.used.unit || ''}` : '用量未报告';
-    row.append(node('span', item.provider), node('span', `${item.freshness === 'stale' ? 'STALE / ' : ''}${item.quotaState} · ${used}`));
-    row.title = `QuotaGuard / ${time(item.observedAt)}`; return row;
-  }));
-  if (!pools.size) $('quota-summary').append(node('p', 'QuotaGuard / 未报告；未知不视为可用'));
+  const seconds = Math.ceil((Date.parse(goal.nextWakeAt) - now) / 1000);
+  reading.textContent = seconds > 0 ? duration(seconds) : '已到期 · 等待巡检裁决';
+  reading.title = `${goal.id} / ${time(goal.nextWakeAt)}`;
 }
+
+const harnesses = new Map([
+  ['codex', ['Codex', 'codex']], ['claude', ['Claude', 'claude']], ['claudeCode', ['Claude', 'claude']],
+  ['grok', ['Grok', 'grok']], ['grokBuild', ['Grok', 'grok']], ['googleAGY', ['AGY', 'agy']],
+  ['agy', ['AGY', 'agy']], ['antigravity', ['AGY', 'agy']],
+]);
+function workerCard(worker) {
+  const [name, glyph] = harnesses.get(worker.harness) || [worker.harness || 'Worker', null];
+  const state = worker.state || 'unknown';
+  const active = state === 'running' || state === 'busy';
+  const quota = worker.quota?.state || 'unknown';
+  const card = node('article', '', active ? 'worker-card active' : 'worker-card');
+  const head = node('div', '', 'worker-head');
+  const sigil = svg('svg', { class: 'worker-sigil', viewBox: '0 0 64 64', 'aria-hidden': 'true' });
+  if (glyph) sigil.append(svg('use', { href: `./sigils.svg#${glyph}` }));
+  else sigil.append(svg('image', { href: './mark.svg', width: 64, height: 64 }));
+  const identity = node('div');
+  identity.append(node('h3', name), node('span', worker.id, 'mono'));
+  head.append(sigil, identity);
+
+  const badges = node('div', '', 'worker-badges');
+  function badge(text, status) {
+    const element = node('span', text, 'badge');
+    if (['failed', 'exhausted', 'rateLimited', 'critical', 'warning'].includes(status)) element.classList.add('warning');
+    if (['offline', 'unknown'].includes(status)) element.classList.add('quiet-state');
+    if (['running', 'busy'].includes(status)) element.classList.add('active');
+    return element;
+  }
+  badges.append(badge(state.toUpperCase(), state), badge(`QUOTA · ${quota.toUpperCase()}`, quota));
+
+  const fields = node('dl', '', 'worker-data');
+  const lease = list(data.leases).find(l => l.goalID === worker.currentGoalID && l.state === 'owned');
+  const leaseText = lease ? `${lease.hostID} · g${lease.generation}${Date.parse(lease.expiresAt) <= Date.now() ? ' · 已过期' : ''}`
+    : !data.leases ? '未报告' : worker.currentTaskID && !worker.currentGoalID ? '未报告 Goal 归属' : '无活动租约';
+  for (const [label, value] of [
+    ['MODEL', worker.model?.displayName || worker.model?.identifier || '未报告'],
+    ['NODE', worker.nodeID || '未报告'], ['SEEN', time(worker.heartbeat?.lastSeenAt)],
+    ['TASK', [worker.currentTaskID, worker.currentTaskTitle].filter(Boolean).join(' · ') || '无活动任务'],
+    ['LEASE', leaseText],
+  ]) {
+    const row = node('div');
+    row.append(node('dt', label), node('dd', value));
+    fields.append(row);
+  }
+  card.append(head, badges, fields);
+  return card;
+}
+
 function renderWorkers() {
   const filter = $('worker-filter').value;
   const workers = list(data.workers).filter(w => filter === 'all' || (filter === 'offline' ? ['offline','failed','unhealthy'].includes(w.state) : filter === 'running' ? ['running','busy'].includes(w.state) : w.state === filter));
-  $('workers').replaceChildren(...workers.map(worker => {
-    const card = node('article', '', 'worker-card');
-    const head = node('div', '', 'worker-head');
-    const names = { codex: 'Codex', claude: 'Claude', claudeCode: 'Claude', grok: 'Grok', grokBuild: 'Grok', googleAGY: 'AGY', agy: 'AGY', antigravity: 'AGY' };
-    head.append(node('h3', names[worker.harness] || worker.harness));
-    const led = node('span', '', 'led'); led.setAttribute('aria-hidden', 'true');
-    const active = ['running','busy'].includes(worker.state);
-    const offline = ['offline','failed','unhealthy'].includes(worker.state);
-    for (let n = 0; n < 25; n++) led.append(node('i', '', !offline && (active || n % 6 === 0 || n % 4 === 0) ? 'on' : ''));
-    head.append(led); card.append(head);
-    card.append(node('p', worker.model?.displayName || worker.model?.identifier || '模型未报告', 'mono'));
-    card.append(node('p', `${worker.state.toUpperCase()} / QUOTA ${worker.quota?.state || 'unknown'}`, 'worker-status'));
-    card.append(node('p', `${worker.id}\nNODE ${worker.nodeID}\nSEEN ${time(worker.heartbeat?.lastSeenAt)}`, 'mono'));
-    const lease = list(data.leases).find(l => l.goalID === worker.currentGoalID && l.state === 'owned');
-    const leaseText = lease ? `${lease.hostID} · g${lease.generation}${Date.parse(lease.expiresAt) < Date.now() ? ' · 已过期' : ''}` : worker.currentTaskID && !worker.currentGoalID ? '未报告 Goal 归属' : '无活动租约';
-    card.append(node('p', `TASK ${worker.currentTaskID || '无活动任务'}\n${worker.currentTaskTitle || '等待调度'}\nLEASE ${leaseText}`, 'worker-task'));
-    return card;
-  }));
+  $('workers').replaceChildren(...workers.map(workerCard));
   if (!workers.length) empty('workers', data.workers ? '当前筛选下没有已注册的 Worker。' : 'Worker 投影不可用。');
 }
 function entry({ kind, at, content, goal, event, hash }) {
@@ -268,13 +273,14 @@ function renderBridge() {
 function controls() {
   const goal = list(data.goals).find(g => g.id === $('goal-select').value);
   const enabled = healthy && list(data.capabilities?.mutations).includes('goal.pause');
-  $('authority-mode').textContent = enabled ? '受控操作已开放' : '只读观测';
+  $('authority-mode').textContent = enabled ? '接入仓已解锁' : '只读观测';
   $('control-policy').textContent = !enabled ? '后端只读或授权不可用。' : !bearer ? '请输入具备 goal:control 权限的令牌。' : '操作仍须服务端鉴权；所有控制均需确认。';
   $('goal-detail').textContent = goal ? `${goal.state} / ${goal.wakeState} / v${goal.version}\n${goal.id}` : '所有控制以 SQLite 回执为准。';
   const control = data.exploration?.globalControl;
   const known = ['open','paused'].includes(control?.state) && Number.isSafeInteger(control.revision);
   $('exploration-control-state').textContent = known ? `全局探索 · ${control.state === 'paused' ? '已暂停' : '开放'} · v${control.revision}` : '全局探索状态待确认';
-  $('exploration-toggle').textContent = control?.state === 'paused' ? '恢复全局探索' : '暂停全局探索';
+  $('exploration-toggle').textContent = control?.state === 'paused' ? '开启黑墙通道' : '黑墙封锁（禁止自主漫游）';
+  $('exploration-toggle').classList.toggle('danger-outline', control?.state !== 'paused');
   $('exploration-toggle').disabled = pending || !known || !healthy || !bearer || !list(data.capabilities?.mutations).includes('exploration.control');
   for (const button of document.querySelectorAll('[data-action]')) {
     const name = button.dataset.action;
@@ -283,7 +289,8 @@ function controls() {
   }
 }
 function render() {
-  renderOverview(); renderBudget(); renderWorkers(); renderMemory(); renderBridge();
+  quotaExpiresAt = renderBudget(data.exploration, data.resources);
+  renderOverview(); renderWorkers(); renderMemory(); renderBridge();
   const selected = $('goal-select').value;
   $('goal-select').replaceChildren(node('option', '选择 Goal'));
   $('goal-select').firstChild.value = '';
@@ -294,11 +301,11 @@ function render() {
   controls();
 }
 const descriptions = {
-  soft: ['SOFT PAUSE', '允许正在执行的工作完成，停止新的派发。'],
-  hard: ['HARD PAUSE', '冻结 Goal，并请求取消可取消的在途任务。'],
-  resume: ['RESUME', '从后端保存的权威状态继续运行。'],
-  steer: ['STEER', '记录人类指引并重新评估，保留已有有效工作。'],
-  stop: ['STOP · 紧急制动', '将此 Goal 标记为主动终止。此操作不能通过 RESUME 撤销。'],
+  soft: ['挂起队列 · SOFT PAUSE', '允许正在执行的工作完成，停止新的派发。'],
+  hard: ['系统重置 · HARD PAUSE', '冻结 Goal，并请求取消可取消的在途任务。'],
+  resume: ['重新接驳 · RESUME', '从后端保存的权威状态继续运行。'],
+  steer: ['注入魔偶 · STEER', '记录人类指引并重新评估，保留已有有效工作。'],
+  stop: ['强制断连 · STOP', '将此 Goal 标记为主动终止。此操作不能通过 RESUME 撤销。'],
 };
 for (const button of document.querySelectorAll('[data-action]')) button.addEventListener('click', () => {
   proposed = { action: button.dataset.action, goalID: $('goal-select').value };
@@ -314,6 +321,8 @@ $('exploration-toggle').addEventListener('click', () => {
     '当前数据库中的自发探索', '操作原因', 1000);
 });
 function confirmControl(title, description, target, label, maxLength) {
+  const danger = ['hard', 'stop'].includes(proposed.action) || proposed.state === 'paused';
+  $('control-dialog').classList.toggle('hazard', danger);
   $('confirm-title').textContent = `确认 ${title}`;
   $('confirm-description').textContent = description;
   $('confirm-goal').textContent = target;
@@ -384,12 +393,20 @@ for (const tab of tabs) {
   });
 }
 selectTab(tabs[0]);
-for (const link of document.querySelectorAll('nav a')) link.addEventListener('click', () => {
-  for (const item of document.querySelectorAll('nav a')) item.classList.toggle('selected', item === link);
-});
+function markSection() {
+  const hash = location.hash || '#overview';
+  for (const link of document.querySelectorAll('nav a')) {
+    const selected = link.hash === hash;
+    link.classList.toggle('selected', selected);
+    if (selected) link.setAttribute('aria-current', 'location');
+    else link.removeAttribute('aria-current');
+  }
+}
+window.addEventListener('hashchange', markSection);
+markSection();
 window.addEventListener('pagehide', () => { bearer = ''; socket?.close(); refreshController?.abort(); });
 window.addEventListener('pageshow', event => { if (event.persisted) { healthy = false; controls(); refresh(); } });
-drawSculpture($('sculpture'));
+const setPortraitMotion = mountPortrait($('sculpture'));
 render(); refresh();
 setInterval(countdown, 1000);
 setInterval(() => { if (!document.hidden) refresh(); }, 10000);

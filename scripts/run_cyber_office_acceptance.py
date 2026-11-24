@@ -159,6 +159,54 @@ def serve(store: StateStore, settings: APISettings):
             assert not thread.is_alive(), "test server did not shut down"
 
 
+def check_motion(page, store: StateStore) -> None:
+    from playwright.sync_api import expect
+
+    page.emulate_media(reduced_motion="no-preference")
+    for section in ("workers-section", "memory-section", "controls-section", "overview"):
+        link = page.locator(f'nav a[href="#{section}"]')
+        link.click()
+        expect(link).to_have_attribute("aria-current", "location")
+        assert page.locator(f"#{section} > :first-child").evaluate(
+            "el => getComputedStyle(el, '::after').animationName === 'register-line'"
+        )
+    page.locator("#connect-open").click()
+    expect(page.locator("#bearer")).to_be_focused()
+    assert page.locator("#connect-title").evaluate(
+        "el => getComputedStyle(el, '::after').animationName === 'register-line'"
+    )
+    page.locator("#bearer").press("Escape")
+    expect(page.locator(".reticle")).to_have_css("animation-name", "orbit")
+    page.evaluate("""() => {
+        const ring = document.querySelector('.upload-ring');
+        ring.dataset.waves = '0';
+        ring.addEventListener('animationstart', () => {
+            ring.dataset.waves = String(Number(ring.dataset.waves) + 1);
+        });
+    }""")
+    hosts = AutonomousHostRepository(store)
+    hosts.heartbeat_host("host-fixture", active_goal_count=0)
+    GoalService(store).create_goal(project_id="fixture", intent="Observe pulse", goal_id="pulse")
+    heartbeat = MetabolicHeartbeat(store)
+    heartbeat.enter_sleep(
+        "pulse", SleepPolicy(wake_reason="timer", next_wake_at=utc_time(datetime.now(UTC)))
+    )
+    claims = heartbeat.tick("host-fixture", config=HeartbeatConfig(), lease_ttl_seconds=30.0)
+    assert len(claims) == 1
+    expect(page.locator(".upload-ring")).to_have_attribute("data-waves", "1")
+    expect(page.locator(".portrait.upload")).to_have_count(0)
+    page.locator("#refresh").click()
+    expect(page.locator("#refresh")).to_be_enabled()
+    expect(page.locator(".upload-ring")).to_have_attribute("data-waves", "1")
+    hosts.release_goal(claims[0])
+    heartbeat.tick("host-fixture", config=HeartbeatConfig(), lease_ttl_seconds=30.0)
+    expect(page.locator("#tick-end")).to_have_text(f"#{heartbeat.list_ticks()[0]['sequence']}")
+    expect(page.locator(".upload-ring")).to_have_attribute("data-waves", "1")
+    page.emulate_media(reduced_motion="reduce")
+    expect(page.locator(".reticle")).to_have_css("animation-name", "none")
+    assert page.evaluate("document.getAnimations().length") == 0
+
+
 def check(browser, store: StateStore, base: str, screenshots: Path | None) -> None:
     from playwright.sync_api import expect
 
@@ -174,10 +222,31 @@ def check(browser, store: StateStore, base: str, screenshots: Path | None) -> No
         label="disposable acceptance", scopes={"observe:read", "goal:control"}
     )
     page.get_by_role("button", name="连接设置").click()
+    if screenshots:
+        page.screenshot(path=str(screenshots / "desktop-connection.png"))
     page.locator("#bearer").fill(token)
     page.locator("#connect-form").get_by_role("button", name="连接", exact=True).click()
     expect(page.locator(".worker-card")).to_have_count(4)
-    expect(page.locator("#connection-state")).to_contain_text("实时投影")
+    expect(page.locator("#connection-state")).to_have_text("神经链路 · 已接驳")
+    for title, subtitle in (
+        ("01 生物监测", "BIOMONITOR · RELIC"),
+        ("02 魔偶阵列", "DAEMONS · CYBERDECK"),
+        ("03 分离芯片", "SHARDS · DATABASE"),
+        ("04 入侵协议", "BREACH PROTOCOL · ICE"),
+    ):
+        link = page.get_by_role("navigation").get_by_role("link", name=f"{title} {subtitle}")
+        expect(link).to_be_visible()
+        expect(page.get_by_role("heading", name=title, exact=True)).to_be_visible()
+    rail = page.locator(".masthead").bounding_box()
+    main = page.get_by_role("main").bounding_box()
+    assert rail and main and rail["x"] + rail["width"] <= main["x"]
+    expect(page.locator(".spec-code")).to_be_visible()
+    expect(page.locator(".metabolic .plate-heading")).to_contain_text("LOCAL · ZERO-TOKEN PING")
+    expect(page.locator(".budget .plate-heading")).to_contain_text("RAM · BLACKWALL QUOTA")
+    assert page.locator(".reticle").evaluate("img => img.complete && img.naturalWidth > 0")
+    expect(page.locator("#authority-mode")).to_have_text("接入仓已解锁")
+    expect(page.locator(".legend")).to_have_text("静默 (PING) 唤醒 (UPLOAD)")
+    expect(page.locator(".portrait figcaption")).to_have_text("ENGRAM · 01 // 愚者")
     expect(page.locator("#wake-count")).to_have_text("1")
     assert page.locator("#bearer").input_value() == ""
     assert page.evaluate("localStorage.length + sessionStorage.length") == 0
@@ -194,8 +263,11 @@ def check(browser, store: StateStore, base: str, screenshots: Path | None) -> No
         "aria-selected", "true"
     )
     page.get_by_role("tab", name="长期记忆", exact=True).click()
-    for state, label in [("paused", "已暂停"), ("open", "开放")]:
-        page.locator("#exploration-toggle").click()
+    for state, label, button in [
+        ("paused", "已暂停", "黑墙封锁（禁止自主漫游）"),
+        ("open", "开放", "开启黑墙通道"),
+    ]:
+        page.get_by_role("button", name=button, exact=True).click()
         page.locator("#reason").fill("Operator testing global exploration control")
         page.locator("#confirm-control").click()
         expect(page.locator("#receipt")).to_contain_text(f"STATE {state}")
@@ -209,18 +281,22 @@ def check(browser, store: StateStore, base: str, screenshots: Path | None) -> No
     if screenshots:
         page.evaluate("window.scrollTo(0, 0)")
         page.screenshot(path=str(screenshots / "mobile.png"), full_page=True)
-    page.set_viewport_size({"width": 1440, "height": 1100})
     page.locator('[data-action="hard"]').click()
+    expect(page.locator("dialog.hazard")).to_be_visible()
+    if screenshots:
+        page.screenshot(path=str(screenshots / "mobile-confirm.png"))
     page.locator("#reason").press("Escape")
+    page.set_viewport_size({"width": 1440, "height": 1100})
     assert GoalService(store).get_goal("goal-atlas")["state"] == "created"
-    for action, expected in (
-        ("soft", "softPaused"),
-        ("resume", "running"),
-        ("steer", "running"),
-        ("hard", "hardPaused"),
-        ("stop", "stopped"),
+    for label, expected in (
+        ("挂起队列", "softPaused"),
+        ("重新接驳", "running"),
+        ("注入魔偶", "running"),
+        ("系统重置", "hardPaused"),
+        ("强制断连", "stopped"),
     ):
-        page.locator(f'[data-action="{action}"]').click()
+        page.get_by_role("button", name=label, exact=True).click()
+        expect(page.locator("#confirm-title")).to_contain_text(label)
         page.locator("#reason").fill("Human acceptance fixture")
         page.locator("#confirm-control").click()
         expect(page.locator("#receipt")).to_contain_text(f"STATE {expected}")
@@ -230,8 +306,9 @@ def check(browser, store: StateStore, base: str, screenshots: Path | None) -> No
     page.locator("#goal-select").select_option("goal-chronos")
     GoalService(store).pause("goal-chronos", "hard", reason="Stream refresh fixture")
     expect(page.locator("#goal-detail")).to_contain_text("hardPaused", timeout=3000)
-    page.get_by_role("tab", name="事件碑文", exact=True).click()
+    page.get_by_role("tab", name="事件日志", exact=True).click()
     expect(page.locator("#events-feed")).to_contain_text("Goal hard pause requested")
+    check_motion(page, store)
     page.get_by_role("button", name="连接设置").click()
     page.locator("#bearer").fill("invalid-fixture-token")
     page.locator("#connect-form").get_by_role("button", name="连接", exact=True).click()
@@ -271,6 +348,7 @@ def main() -> None:
                     from playwright.sync_api import expect
 
                     expect(page.locator("#workers .empty")).to_contain_text("没有已注册")
+                    expect(page.locator("#quota-summary")).to_have_text("内存配额未上报 · 保守锁定")
                     expect(page.locator("#exploration-status")).to_have_text("自发探索未启用")
                     expect(page.locator('[data-action="stop"]')).to_be_disabled()
                     page.close()

@@ -1,54 +1,146 @@
-# Cyber Office · Obsidian / Brass
+# Cyber Office · Arasaka × Retro-Futurism
 
-Cyber Office is the human observation and control surface; Supervisor remains a headless kernel.
-The design combines a quiet observatory with the proportions of a classical study. It uses real
-backend projections exclusively. Missing evidence is shown as unavailable, never as decorative data.
+Arasaka × Retro-Futurism is the sole visual standard for Cyber Office. It covers views 01–04, the Bridge feed, both dialogs, and every loading, empty, error and receipt state.
+The portrait, scanning reticle and engineering marks are presentation assets. SQLite owns Goal, Worker,
+lease, budget and heartbeat state. Human controls display the backend's transaction receipt.
 
-## Palette and typography
+## Operator terminology
 
-| Token | Value | Purpose |
+Use these Cyberpunk 2077 terms and project-specific subtitle pairings in navigation and headings.
+
+| Section or instrument | English subtitle |
+|---|---|
+| 01 生物监测 | BIOMONITOR · RELIC |
+| 02 魔偶阵列 | DAEMONS · CYBERDECK |
+| 03 分离芯片 | SHARDS · DATABASE |
+| 04 入侵协议 | BREACH PROTOCOL · ICE |
+| Relic 脉搏 | LOCAL · ZERO-TOKEN PING |
+| 内存与黑墙 | RAM · BLACKWALL QUOTA |
+
+Caption the portrait **ENGRAM · 01 // 愚者**. Label NOOP **静默 (PING)** and WOKE **唤醒 (UPLOAD)**.
+An empty quota snapshot list reads **内存配额未上报 · 保守锁定**. A failed projection retains its
+unavailable message. Reserve **神经链路 · 已接驳** for a live stream and **接入仓已解锁** for
+operator-enabled controls. The backend checks the token on each request.
+
+| Button | Backend operation |
+|---|---|
+| 挂起队列 | SOFT PAUSE |
+| 系统重置 | HARD PAUSE |
+| 重新接驳 | RESUME |
+| 注入魔偶 | STEER |
+| 强制断连 | STOP |
+| 黑墙封锁（禁止自主漫游） | Pause global exploration |
+| 开启黑墙通道 | Resume global exploration |
+
+Goal confirmations name the operation, its effect and the selected Goal. The global exploration
+confirmation names the database-wide scope. Display state, version and cursor from the receipt.
+
+## Colour, type and material
+
+| CSS token | Value | Use |
 |---|---|---|
-| canvas | #0A0C0F | Obsidian background |
-| surface | #12151B | Cathedral shadow panels |
-| text | #EAE2CE | Ivory, primary reading |
-| muted | #9B978B | Secondary reading, minimum 4.5:1 on surfaces |
-| brass | #C8A253 | Active focus, WOKE, selected navigation |
-| vermilion | #9E3B33 | Danger surface; use ivory foreground |
-| danger-text | #E89A8C | Readable alert text on obsidian |
-| lapis | #3D6B8E | Sleep, observation and NOOP marks |
-| lapis-text | #8FB8D5 | Readable observational text |
-| line | #34352F | 1px architectural hairlines |
+| `--canvas` | `#050507` | Deep black page and shadow |
+| `--surface` | `#0B0B0E` | Instrument plates and dialogs |
+| `--ink` / `--highlight` | `#ECEAE4` / `#FFFFFF` | Cold silver type and silver numerical highlights |
+| `--silver` / `--muted` | `#C6C5CA` / `#A4A2A8` | NOOP marks, inscriptions, secondary text |
+| `--crimson` / `--crimson-shadow` | `#D92323` / `#6E1114` | Active rail, UPLOAD spikes, live indicators and selected gradients |
+| `--danger` / `--danger-text` | `var(--crimson)` / `var(--ink)` | Emergency outlines and legible silver warning text |
+| `--line` / `--edge` | `#353439` / `#67666C` | Graticules, frame incisions and metal edges |
 
-Titles use local classical serif fallbacks (Noto Serif CJK / Songti / Georgia), body uses local sans,
-and IDs, hashes, timestamps and meters use local monospace. No downloaded fonts. Type scale:
-12/14/16px body and telemetry; 20/28/38px headings; 48px principal readings. Default body line-height
-1.65; identifiers may wrap with `overflow-wrap:anywhere`. Controls explicitly use 13px monospace.
+The local serif stack pairs Chinese Song-style headings with monospace English instrument codes. Tabular
+monospace serves counts, times, pool readings, Goal IDs and hashes. The page title scales from
+32 to 46 px. Section titles use 22–27 px and the principal numerical readings use 40 px on desktop.
+Secondary details wrap inside their plate. Font loading uses system faces.
 
-## Composition and components
+A repeating 128 px grain tile sits in the page and plate **backgrounds**, behind type and focus
+rings. Panels and Worker cards have 12 px, 45° cuts at opposing corners with 1 px silver
+edge markings. Goal and global controls use 6 px cuts and inset keyboard focus. Instrument
+corner codes identify Relic and RAM. Running Worker cards have an
+additional bright lip. Each Worker family has its own etched circuit trace on a shared stippled chip package. A crosshair on an empty signal plate accompanies empty-state text.
 
-A 184px navigation rail anchors a fluid content canvas. Desktop panels use a 1.618:1 split; the
-Worker matrix uses four equal columns. At 1100px the split collapses, and below 720px navigation
-becomes a horizontal strip and Workers become a single-column list. Gutters follow 4/8/12/16/24/32px.
-Panels have square geometry, subtle top borders, and no deep shadows. Golden focus outlines are
-visible on keyboard navigation. Every number has a unit, source context, or explicit unavailable state.
+## Component states and motion
 
-Core surfaces: metabolic overview with local heartbeat trace and next wake countdown; Worker
-matrix with health/task/lease provenance; memory/reflection and event timeline; quota/exploration
-budget and human control console. Bridge receipts form a subordinate read-only observation strip.
-Only persisted WOKE evaluations create high pulses. NOOP is a low lapis mark. Expired host/lease/remote
-observations are marked stale; a persisted `running` label alone must not imply current liveness.
+All interactive faces use the same opposing 45° cuts. Plates and dialogs use `--cut` (12 px),
+buttons and fields use `--control-cut` (6 px), and status capsules use `--badge-cut` (3 px).
+Keep a 1 px hairline along the cut. Selects retain keyboard and native selection semantics
+with a calibrated chevron. Supporting browsers also skin the open picker. Both modal forms
+carry an engineering identifier and open with focus inside the native dialog.
 
-## Procedural art and motion
+| Button state | Visible treatment | Behaviour |
+|---|---|---|
+| Rest | Cold edge, silver label | Available actions reflect the current projection |
+| Hover / keyboard focus | Crimson edge and inward corner marks, plus an inset keyboard focus outline | No request |
+| Pressed | Dark crimson fill and tighter marks | A Goal or global action opens confirmation |
+| Confirming high risk | Crimson dialog edge and submit control | Shows the operation, effect, and scope |
+| Pending / unavailable | Muted disabled controls and explicit policy or pending text | Duplicate submission stays gated |
+| Receipt / error | Returned state and revision, or a marked error | The backend adjudicates the change |
 
-A code-native classical bust is composed from SVG-style Bézier outlines on Canvas, layered with
-cross-hatching and a 4×4 Bayer threshold matrix. Ivory tonal steps are shaded against obsidian; fine
-geometric arcs recall a proportional drawing. Art is decorative, never a capacity or health signal.
-CRT scanlines are low-opacity and confined to the artwork. No remote image, external font or CDN.
-LED matrices encode current Worker state but always accompany a textual state label.
+| Token | Duration | Use |
+|---|---|---|
+| `--motion` | 160 ms | Button edges and registration marks |
+| `--motion-entry` | 200 ms | A line draws beneath the destination heading or dialog title |
+| `--motion-upload` | 420 ms | One red ripple and a grain brightness lift per fresh, visible WOKE sequence |
+| `--motion-crt` | 4.8 s | Low-amplitude phosphor light and waveform scanline breathing |
+| `--motion-orbit` | 120 s | One precision reticle revolution while in view |
 
-Motion is limited to a brief state-color transition and a cursor-like live indicator. No continuous
-camera movement, blinking alerts or fabricated breathing pulses. `prefers-reduced-motion` removes
-nonessential transitions. Countdown updates once per second without announcing every tick.
+Motion layers ignore pointer events. Navigation, focus, confirmation and receipt rendering
+take effect immediately. NOOP leaves the grains still. The ornamental ring is independent
+of ledger activity. Reduced motion removes rotation, pulse, phosphor breathing, transitions
+and entry animations, while retaining the static red spike, labels and focus marks.
+
+## Composition
+
+Above 1050 px a 206 px left rail carries the four numbered anchors, connection status and
+settings. A crimson stripe marks the current anchor. Its footer bears the static engineering mark
+`ARASAKA-SPEC // LOOPBACK`. The mark identifies the design specification. Runtime connection
+and access states have their own indicators. Smaller screens use a compact horizontal masthead. A ruled
+title row leads to the paired metabolic and budget instruments in a 1.65 to 1 split. The portrait
+occupies the right portion of the metabolic plate. The plot below it spans the full plate width.
+The host and workflow strip remains directly beneath the instruments.
+
+The Worker matrix flows from four columns to two at 1050 px. Below 800 px the main plates stack
+and navigation occupies a second line. At 560 px and below the budget instruments and Worker cards
+use a single column. Memory, reflections and events share a keyboard-operable tab strip. The
+operator console and read-only Bridge receipts follow. Dialogs support keyboard focus and Escape.
+
+## Portrait and motion
+
+`portrait.webp` is a locally bundled grayscale light map generated for this project, a photographic
+study of a carved philosopher's head. The shipped Canvas renderer samples its luminance and uses
+a seeded random exposure threshold with serpentine Floyd–Steinberg error diffusion. Midtones expose cold silver-gray grains, with more white grains toward highlights.
+Black shows between grains. A slowly rotating pair of 1 px concentric crimson arcs and silver ticks
+frames the portrait. Both rings are decorative. The raster is computed at the displayed size and device density, capped at 640 px per
+side. Rotation or resizing reprints the plate when its working resolution changes.
+
+The print has two cached grain layers. A fresh WOKE from a live host gently displaces the smaller
+layer over 4.8 seconds. A host reporting active Goals can sustain that motion within its heartbeat
+TTL. The newest NOOP takes priority, including on a busy host. Unavailable projections, expired
+host evidence, hidden or offscreen art, and reduced-motion preferences leave a still portrait.
+The idle print schedules no animation frames.
+
+## Reading the instruments
+
+- **Heartbeat** uses up to the latest 48 ledger entries in sequence order. Each NOOP places a small
+  silver point on the lower track. Each WOKE places a crimson peak with a narrow afterimage. Axis
+  endpoints are actual ledger sequence numbers. Horizontal distance denotes successive checks.
+  The larger wake count uses the complete fetched window. The next-wake readout uses the earliest
+  dated, sleeping, nonterminal Goal eligible for display under its Goal pause state.
+- **Exploration** displays the UTC-day reservation count and the common cap from enabled host
+  policies. A segmented dot ruler fills proportionally to the reserved fraction, capped at 100%.
+  The numeric reading preserves the actual count. Unknown or differing caps leave the ratio
+  unavailable. Global and per-Goal brakes remain visible in the budget status.
+- **QuotaGuard** groups the latest fetched snapshot per quota pool into available, warning,
+  critical, exhausted or unknown. Stale samples and samples without valid freshness evidence count
+  as unknown. Pool details retain the reported usage and observation time. An empty window
+  displays dashes and an explicit empty state.
+- **Exploration cooldown** combines the most recent proposal's UTC creation time with the common
+  enabled-host cooldown interval. The graduated scale shows remaining time from zero to the policy
+  limit. Missing proposals, conflicting intervals or unavailable policy suppress the needle.
+  Expiration indicates the end of that backoff period. Budget, quota, leases and human controls
+  still govern dispatch.
+- **Workers** carry separate textual state and quota capsules with dot-matrix marks. Model, node,
+  last-seen time, Task and owned lease generation remain available on each card. Unknown quota
+  and an expired lease have explicit readings.
 
 ## Interaction, access and authority
 
@@ -73,12 +165,12 @@ Static files are read-only packaged assets mounted by FastAPI; importing/running
 does not start a web server. The site loads without external dependencies and binds no additional
 ports. API authorization and loopback defaults are unchanged.
 
-## Verification checklist
+## Visual acceptance
 
-Check 1440px and 390px widths, keyboard focus/dialog behavior, accessible text labels, mobile
-horizontal overflow, empty/unauthorized/disconnected states, real mocked SQLite projections, live
-refresh, and control denial/receipt. Compare title hierarchy, exact palette, rail/panel proportions,
-procedural art, and spacing against the code-native concept. Do not seed production with demo data.
+Use the isolated SQLite fixture to compare desktop and mobile renders. Verify the printed portrait,
+NOOP stillness, WOKE signal, stale and empty quota windows, keyboard focus, responsive layout and
+confirmed controls. Refreshing the page clears the in-memory bearer. Loss of authorization must
+remove the protected readings. The application requests assets only from its own origin.
 
 ## Isolated read-only trial
 
@@ -111,13 +203,8 @@ PYTHONDONTWRITEBYTECODE=1 .venv/bin/python scripts/run_cyber_office_acceptance.p
   --browser-binary /path/to/chromium
 ```
 
-`--screenshots NEW_DIRECTORY` saves desktop/mobile fixture screenshots without overwriting an existing
+`--screenshots NEW_DIRECTORY` saves desktop/mobile fixture screenshots including modal states without overwriting an existing
 directory. The script creates disposable SQLite stores and ephemeral loopback servers, exercises
 REST/stream projections, all five Goal controls and the global exploration brake, denied authentication, XSS-safe text rendering, empty
 states, responsive layout and cleanup. Its generated test tokens stay in memory. No fixture enters
 the operator's database. Browser downloads are never automatic.
-
-The implemented layout follows the code-native concept's palette, 184px rail, classical typography,
-golden split, engraved bust and LED matrix. The responsive version stacks panels and shows actual
-rows rather than decorative placeholder cards. Screenshot review covers 1440×1100 and 390×844;
-mobile memory content remains independently scrollable, with complete provenance and hashes.
